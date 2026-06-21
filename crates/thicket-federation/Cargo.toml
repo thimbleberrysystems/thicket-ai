@@ -1,0 +1,15 @@
+[package]
+name = "thicket-federation"
+description = "Thicket federation: catalog profiles, collection selection, scatter-gather, TTL cache."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thicket-core.workspace = true
+thicket-registry.workspace = true
+
+[dev-dependencies]
+thicket-core.workspace = true
+thicket-registry.workspace = true

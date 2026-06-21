@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/thicket-core",
+    "crates/thicket-registry",
+    "crates/thicket-interconnect",
+    "crates/thicket-trust",
+    "crates/thicket-federation",
+    "crates/thicket-net",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/thicket-ai/thicket"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ciborium = "0.2"
+sha2 = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+hex = "0.4"
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
+thicket-core = { path = "crates/thicket-core" }
+thicket-registry = { path = "crates/thicket-registry" }
+thicket-interconnect = { path = "crates/thicket-interconnect" }
