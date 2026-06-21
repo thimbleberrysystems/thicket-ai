@@ -72,8 +72,8 @@ impl Conn {
             }
         }
 
-        let (out_tx, mut out_rx) = mpsc::channel::<Vec<u8>>(64);
-        let (inbound_tx, inbound_rx) = mpsc::channel::<SignedEnvelope>(64);
+        let (out_tx, mut out_rx) = mpsc::channel::<Vec<u8>>(256);
+        let (inbound_tx, inbound_rx) = mpsc::channel::<SignedEnvelope>(256);
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
         let streams: Streams = Arc::new(Mutex::new(HashMap::new()));
 
@@ -106,7 +106,7 @@ impl Conn {
                 {
                     continue;
                 }
-                route(&env, &pending_r, &streams_r, &inbound_tx).await;
+                route(&env, &pending_r, &streams_r, &inbound_tx);
             }
         })
         .abort_handle();
@@ -168,7 +168,7 @@ impl Conn {
         let correlation = payload.correlation.clone();
         let signed = payload.sign(&self.working)?;
 
-        let (tx, rx) = mpsc::channel(32);
+        let (tx, rx) = mpsc::channel(64);
         self.streams.lock().unwrap().insert(correlation, tx);
 
         self.out_tx
@@ -195,7 +195,12 @@ impl Conn {
     }
 }
 
-async fn route(
+/// Demultiplex one incoming envelope. Deliberately **non-blocking**: the reader
+/// must never await on application consumption, or a stalled consumer on one
+/// logical channel would starve response delivery on every other (head-of-line
+/// deadlock). Overflow degrades gracefully — a dropped response/request makes
+/// the caller time out; a dropped stream chunk truncates that one stream.
+fn route(
     env: &SignedEnvelope,
     pending: &Pending,
     streams: &Streams,
@@ -210,20 +215,21 @@ async fn route(
         }
         EnvelopeType::StreamChunk => {
             let corr = env.payload.correlation.clone();
-            let sender = streams.lock().unwrap().get(&corr).cloned();
-            if let Some(tx) = sender {
-                let _ = tx.send(env.clone()).await;
+            let mut map = streams.lock().unwrap();
+            if let Some(tx) = map.get(&corr) {
+                if tx.try_send(env.clone()).is_err() {
+                    // Consumer stalled or gone: close (truncate) the stream.
+                    map.remove(&corr);
+                    return;
+                }
             }
             if env.payload.stream_end {
-                streams.lock().unwrap().remove(&corr);
+                map.remove(&corr);
             }
         }
-        EnvelopeType::Request | EnvelopeType::Event => {
-            let _ = inbound_tx.send(env.clone()).await;
-        }
-        EnvelopeType::Cancel => {
-            // Surfaced to the serving side as an inbound message.
-            let _ = inbound_tx.send(env.clone()).await;
+        EnvelopeType::Request | EnvelopeType::Event | EnvelopeType::Cancel => {
+            // Drop on overflow rather than block the reader; the caller times out.
+            let _ = inbound_tx.try_send(env.clone());
         }
     }
 }

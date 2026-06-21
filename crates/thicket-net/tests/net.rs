@@ -293,3 +293,80 @@ async fn request_response_over_real_tcp() {
     drop(client);
     server.await.unwrap();
 }
+
+#[tokio::test]
+async fn many_concurrent_calls_are_multiplexed() {
+    let (cs, ss) = duplex(65536);
+    let (server_local, server_id) = node(1_000_000);
+    let (client_local, client_id) = node(1_000_000);
+
+    let server = tokio::spawn(async move {
+        let conn = Conn::connect(ss, server_local, None).await.unwrap();
+        serve_echo(conn).await;
+    });
+
+    let client = Conn::connect(cs, client_local, Some(server_id.clone()))
+        .await
+        .unwrap();
+
+    // Fire many calls concurrently on one connection; each must get its own
+    // correlated reply back (no cross-talk, no head-of-line stall).
+    let mut handles = Vec::new();
+    for i in 0..50u8 {
+        let c = client.clone();
+        let (cid, sid) = (client_id.clone(), server_id.clone());
+        handles.push(tokio::spawn(async move {
+            let resp = c
+                .call(
+                    EnvelopePayload::request(cid, sid, "echo").with_body(vec![i]),
+                    Duration::from_secs(5),
+                )
+                .await
+                .unwrap();
+            assert_eq!(resp.payload.body, vec![i]);
+        }));
+    }
+    for h in handles {
+        h.await.unwrap();
+    }
+
+    drop(client);
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn bidirectional_nodes_serve_and_call() {
+    // Both ends serve echo AND call each other: the non-blocking reader must not
+    // deadlock when a node is simultaneously a server and a client.
+    let (a_stream, b_stream) = duplex(65536);
+    let (a_local, a_id) = node(1_000_000);
+    let (b_local, b_id) = node(1_000_000);
+
+    let a_task = tokio::spawn(Conn::connect(a_stream, a_local, None));
+    let b = Conn::connect(b_stream, b_local, None).await.unwrap();
+    let a = a_task.await.unwrap().unwrap();
+
+    let a_srv = tokio::spawn(serve_echo(a.clone()));
+    let b_srv = tokio::spawn(serve_echo(b.clone()));
+
+    let from_a = a
+        .call(
+            EnvelopePayload::request(a_id.clone(), b_id.clone(), "echo").with_body(b"a->b".to_vec()),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+    let from_b = b
+        .call(
+            EnvelopePayload::request(b_id.clone(), a_id.clone(), "echo").with_body(b"b->a".to_vec()),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(from_a.payload.body, b"a->b".to_vec());
+    assert_eq!(from_b.payload.body, b"b->a".to_vec());
+
+    a_srv.abort();
+    b_srv.abort();
+}
