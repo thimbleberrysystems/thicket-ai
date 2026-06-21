@@ -539,8 +539,8 @@ Named honestly; none fully solved in v1.
 
 ## 18. Proposed build order
 
-Implemented in Rust as a Cargo workspace (`crates/`), 40 passing tests. Status
-below; ✅ = implemented at the protocol/library level with tests, ◑ = partial.
+Implemented in Rust as a Cargo workspace (`crates/`), 47 passing tests. Status
+below; ✅ = implemented with tests, ◑ = partial.
 
 1. ✅ **Record + capability schema + signing + key chain** — `thicket-core`
    (`record`, `capability`, `identity`, `crypto`). Canonical signing
@@ -553,9 +553,11 @@ below; ✅ = implemented at the protocol/library level with tests, ◑ = partial
 4. ✅ **Interconnect v1** — `thicket-interconnect`: auth handshake, signed
    envelope, request/response, and attenuable **grants** (authz from day one,
    monotonic-narrowing enforced).
-5. ◑ **Streaming + events + error/deadline semantics** — envelope types,
-   `ErrorCode`, deadlines, stream ordering fields present and tested; a full
-   async dispatcher/transport adapter is still pending.
+5. ✅ **Streaming + events + error/deadline semantics + networking** —
+   `thicket-net`: length-delimited framing, mutually-authenticated async
+   handshake (with timeout), and a request/response + streaming session with
+   correlation, deadlines, and grant-gated invocation, over in-memory duplex and
+   real TCP. (Encrypting transport adapter still pending — see below.)
 6. ✅ **Trust v1** — `thicket-trust`: signed attestations, Sybil-resistant
    reputation, cold-start exploration ranking. (Probing/cost-to-register are
    modeled as outcome/weight inputs; enforcement policy is per-registry.)
@@ -566,9 +568,8 @@ below; ✅ = implemented at the protocol/library level with tests, ◑ = partial
    still deferred (the `Resolve` interface is unchanged, so it swaps underneath).
 
 **Not yet built (the network edge):** the encrypting transport adapter
-(Noise/QUIC), an async request/response dispatcher, the Kademlia DHT, and
-cross-language conformance vectors. These bind the protocol logic to the wire;
-the logic itself is in place and tested.
+(Noise/QUIC) beneath the authentication layer, the Kademlia DHT (referral +
+replication is in place), and cross-language conformance vectors.
 
 ---
 

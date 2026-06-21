@@ -10,6 +10,7 @@ use thicket_core::{Id, WorkingKey};
 use thicket_interconnect::{EnvelopePayload, EnvelopeType, SignedEnvelope};
 use tokio::io::{split, AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
+use tokio::task::AbortHandle;
 
 use crate::error::{Error, Result};
 use crate::framing::{from_cbor, read_frame, to_cbor, write_frame};
@@ -20,6 +21,10 @@ use crate::unix_now;
 type Pending = Arc<Mutex<HashMap<Vec<u8>, oneshot::Sender<SignedEnvelope>>>>;
 type Streams = Arc<Mutex<HashMap<Vec<u8>, mpsc::Sender<SignedEnvelope>>>>;
 
+/// How long the authentication handshake may take before the connection attempt
+/// is abandoned — a silent or hostile peer must not be able to hang `connect`.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// An established, authenticated connection.
 pub struct Conn {
     local_id: Id,
@@ -29,6 +34,18 @@ pub struct Conn {
     pending: Pending,
     streams: Streams,
     inbound: tokio::sync::Mutex<mpsc::Receiver<SignedEnvelope>>,
+    reader_task: AbortHandle,
+    writer_task: AbortHandle,
+}
+
+impl Drop for Conn {
+    fn drop(&mut self) {
+        // Abort the I/O tasks so both stream halves are released promptly. Until
+        // the reader half drops, a split stream stays open and the peer never
+        // sees EOF — which would hang the peer's receive loop on teardown.
+        self.reader_task.abort();
+        self.writer_task.abort();
+    }
 }
 
 impl Conn {
@@ -43,7 +60,12 @@ impl Conn {
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
         let (mut r, mut w) = split(stream);
-        let peer = handshake(&mut r, &mut w, &local, unix_now()).await?;
+        let peer = tokio::time::timeout(
+            HANDSHAKE_TIMEOUT,
+            handshake(&mut r, &mut w, &local, unix_now()),
+        )
+        .await
+        .map_err(|_| Error::Timeout)??;
         if let Some(expected) = expected_peer {
             if expected != peer.id {
                 return Err(Error::PeerMismatch);
@@ -56,19 +78,20 @@ impl Conn {
         let streams: Streams = Arc::new(Mutex::new(HashMap::new()));
 
         // Writer task: drain queued frames to the wire.
-        tokio::spawn(async move {
+        let writer_task = tokio::spawn(async move {
             while let Some(frame) = out_rx.recv().await {
                 if write_frame(&mut w, &frame).await.is_err() {
                     break;
                 }
             }
-        });
+        })
+        .abort_handle();
 
         // Reader task: demultiplex incoming envelopes.
         let peer_r = peer.clone();
         let pending_r = pending.clone();
         let streams_r = streams.clone();
-        tokio::spawn(async move {
+        let reader_task = tokio::spawn(async move {
             loop {
                 let bytes = match read_frame(&mut r).await {
                     Ok(Some(b)) => b,
@@ -85,7 +108,8 @@ impl Conn {
                 }
                 route(&env, &pending_r, &streams_r, &inbound_tx).await;
             }
-        });
+        })
+        .abort_handle();
 
         Ok(Arc::new(Conn {
             local_id: local.id,
@@ -95,6 +119,8 @@ impl Conn {
             pending,
             streams,
             inbound: tokio::sync::Mutex::new(inbound_rx),
+            reader_task,
+            writer_task,
         }))
     }
 
