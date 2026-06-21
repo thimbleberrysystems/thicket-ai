@@ -463,6 +463,7 @@ dependencies = [
  "serde",
  "thicket-core",
  "thicket-interconnect",
+ "thicket-registry",
  "thiserror",
  "tokio",
 ]

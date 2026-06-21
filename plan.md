@@ -539,7 +539,7 @@ Named honestly; none fully solved in v1.
 
 ## 18. Proposed build order
 
-Implemented in Rust as a Cargo workspace (`crates/`), 47 passing tests. Status
+Implemented in Rust as a Cargo workspace (`crates/`), 50 passing tests. Status
 below; ✅ = implemented with tests, ◑ = partial.
 
 1. ✅ **Record + capability schema + signing + key chain** — `thicket-core`
@@ -557,7 +557,10 @@ below; ✅ = implemented with tests, ◑ = partial.
    `thicket-net`: length-delimited framing, mutually-authenticated async
    handshake (with timeout), and a request/response + streaming session with
    correlation, deadlines, and grant-gated invocation, over in-memory duplex and
-   real TCP. (Encrypting transport adapter still pending — see below.)
+   real TCP. Non-blocking demux (no head-of-line deadlock); clean teardown.
+   An end-to-end integration test exercises the full client path:
+   register → search → resolve → connect (identity-verified) → authorize →
+   invoke. (Encrypting transport adapter still pending — see below.)
 6. ✅ **Trust v1** — `thicket-trust`: signed attestations, Sybil-resistant
    reputation, cold-start exploration ranking. (Probing/cost-to-register are
    modeled as outcome/weight inputs; enforcement policy is per-registry.)
