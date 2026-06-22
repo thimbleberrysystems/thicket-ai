@@ -216,7 +216,7 @@ fn lease_expired(record: &SignedRecord, now: u64) -> bool {
         .payload
         .lease
         .as_ref()
-        .map_or(false, |l| now > l.expires_at)
+        .is_some_and(|l| now > l.expires_at)
 }
 
 fn kind_matches(stored: &Stored, need: &Need) -> bool {
