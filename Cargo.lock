@@ -435,6 +435,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "thicket-directory"
+version = "0.1.0"
+dependencies = [
+ "ciborium",
+ "serde",
+ "thicket-core",
+ "thicket-interconnect",
+ "thicket-net",
+ "thicket-registry",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "thicket-federation"
 version = "0.1.0"
 dependencies = [
@@ -472,6 +486,7 @@ dependencies = [
 name = "thicket-registry"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "thicket-core",
  "thiserror",
 ]

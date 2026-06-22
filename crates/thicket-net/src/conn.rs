@@ -20,10 +20,17 @@ use crate::unix_now;
 
 type Pending = Arc<Mutex<HashMap<Vec<u8>, oneshot::Sender<SignedEnvelope>>>>;
 type Streams = Arc<Mutex<HashMap<Vec<u8>, mpsc::Sender<SignedEnvelope>>>>;
+type EventSubs = Arc<Mutex<HashMap<String, mpsc::Sender<SignedEnvelope>>>>;
 
 /// How long the authentication handshake may take before the connection attempt
 /// is abandoned — a silent or hostile peer must not be able to hang `connect`.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Whether a peer's handshake-validated working key is still fresh at `now`
+/// (per-message freshness, plan §7). Pulled out for direct testing.
+pub fn peer_key_fresh(key_not_after: u64, now: u64) -> bool {
+    now <= key_not_after
+}
 
 /// An established, authenticated connection.
 pub struct Conn {
@@ -33,6 +40,7 @@ pub struct Conn {
     out_tx: mpsc::Sender<Vec<u8>>,
     pending: Pending,
     streams: Streams,
+    event_subs: EventSubs,
     inbound: tokio::sync::Mutex<mpsc::Receiver<SignedEnvelope>>,
     reader_task: AbortHandle,
     writer_task: AbortHandle,
@@ -76,6 +84,7 @@ impl Conn {
         let (inbound_tx, inbound_rx) = mpsc::channel::<SignedEnvelope>(256);
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
         let streams: Streams = Arc::new(Mutex::new(HashMap::new()));
+        let event_subs: EventSubs = Arc::new(Mutex::new(HashMap::new()));
 
         // Writer task: drain queued frames to the wire.
         let writer_task = tokio::spawn(async move {
@@ -91,12 +100,18 @@ impl Conn {
         let peer_r = peer.clone();
         let pending_r = pending.clone();
         let streams_r = streams.clone();
+        let event_subs_r = event_subs.clone();
         let reader_task = tokio::spawn(async move {
             loop {
                 let bytes = match read_frame(&mut r).await {
                     Ok(Some(b)) => b,
                     _ => break, // EOF or error: connection done
                 };
+                // Per-message freshness: stop trusting the peer once its endorsed
+                // working key has expired.
+                if !peer_key_fresh(peer_r.key_not_after, unix_now()) {
+                    break;
+                }
                 let env: SignedEnvelope = match from_cbor(&bytes) {
                     Ok(e) => e,
                     Err(_) => continue,
@@ -106,7 +121,7 @@ impl Conn {
                 {
                     continue;
                 }
-                route(&env, &pending_r, &streams_r, &inbound_tx);
+                route(&env, &pending_r, &streams_r, &event_subs_r, &inbound_tx);
             }
         })
         .abort_handle();
@@ -118,6 +133,7 @@ impl Conn {
             out_tx,
             pending,
             streams,
+            event_subs,
             inbound: tokio::sync::Mutex::new(inbound_rx),
             reader_task,
             writer_task,
@@ -193,6 +209,36 @@ impl Conn {
     pub async fn recv_request(&self) -> Option<SignedEnvelope> {
         self.inbound.lock().await.recv().await
     }
+
+    /// Subscribe to events for `topic` from the peer (plan §6 pub/sub). Returns a
+    /// receiver of `Event` envelopes whose capability matches `topic`. Events for
+    /// topics with no subscriber fall through to `recv_request`.
+    pub fn subscribe(&self, topic: impl Into<String>) -> mpsc::Receiver<SignedEnvelope> {
+        let (tx, rx) = mpsc::channel(64);
+        self.event_subs.lock().unwrap().insert(topic.into(), tx);
+        rx
+    }
+
+    /// Emit an event on `topic` to the peer (plan §6 `Emit`).
+    pub async fn emit(&self, topic: impl Into<String>, body: Vec<u8>) -> Result<()> {
+        let payload = EnvelopePayload::event(self.local_id.clone(), self.peer.id.clone(), topic)
+            .with_body(body);
+        self.send(payload).await
+    }
+
+    /// Best-effort flush: wait until all queued outbound frames have been handed
+    /// to the writer before the connection is dropped, so a final reply is not
+    /// lost to an abrupt teardown.
+    pub async fn flush(&self) {
+        // The writer drains `out_tx`; when capacity is fully restored the queue
+        // is empty. Poll briefly rather than block forever.
+        for _ in 0..1000 {
+            if self.out_tx.capacity() == self.out_tx.max_capacity() {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+    }
 }
 
 /// Demultiplex one incoming envelope. Deliberately **non-blocking**: the reader
@@ -204,6 +250,7 @@ fn route(
     env: &SignedEnvelope,
     pending: &Pending,
     streams: &Streams,
+    event_subs: &EventSubs,
     inbound_tx: &mpsc::Sender<SignedEnvelope>,
 ) {
     match env.payload.typ {
@@ -227,7 +274,21 @@ fn route(
                 map.remove(&corr);
             }
         }
-        EnvelopeType::Request | EnvelopeType::Event | EnvelopeType::Cancel => {
+        EnvelopeType::Event => {
+            // Deliver to a topic subscriber if one exists; otherwise surface it
+            // to the serving side via the inbound queue.
+            let topic = env.payload.capability.clone().unwrap_or_default();
+            let sink = event_subs.lock().unwrap().get(&topic).cloned();
+            match sink {
+                Some(tx) => {
+                    let _ = tx.try_send(env.clone());
+                }
+                None => {
+                    let _ = inbound_tx.try_send(env.clone());
+                }
+            }
+        }
+        EnvelopeType::Request | EnvelopeType::Cancel => {
             // Drop on overflow rather than block the reader; the caller times out.
             let _ = inbound_tx.try_send(env.clone());
         }

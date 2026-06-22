@@ -539,8 +539,9 @@ Named honestly; none fully solved in v1.
 
 ## 18. Proposed build order
 
-Implemented in Rust as a Cargo workspace (`crates/`), 50 passing tests. Status
-below; ✅ = implemented with tests, ◑ = partial.
+Implemented in Rust as a Cargo workspace (`crates/`), 57 passing tests. The
+behavioral protocol surface is complete; only swappable substrate remains.
+Status below; ✅ = implemented with tests, ◑ = partial.
 
 1. ✅ **Record + capability schema + signing + key chain** — `thicket-core`
    (`record`, `capability`, `identity`, `crypto`). Canonical signing
@@ -553,14 +554,14 @@ below; ✅ = implemented with tests, ◑ = partial.
 4. ✅ **Interconnect v1** — `thicket-interconnect`: auth handshake, signed
    envelope, request/response, and attenuable **grants** (authz from day one,
    monotonic-narrowing enforced).
-5. ✅ **Streaming + events + error/deadline semantics + networking** —
-   `thicket-net`: length-delimited framing, mutually-authenticated async
-   handshake (with timeout), and a request/response + streaming session with
-   correlation, deadlines, and grant-gated invocation, over in-memory duplex and
-   real TCP. Non-blocking demux (no head-of-line deadlock); clean teardown.
-   An end-to-end integration test exercises the full client path:
-   register → search → resolve → connect (identity-verified) → authorize →
-   invoke. (Encrypting transport adapter still pending — see below.)
+5. ✅ **Networking + streaming + events + error/deadline** — `thicket-net`:
+   framing, mutually-authenticated async handshake (with timeout), request/
+   response + streaming with correlation, deadlines, grant-gated invocation,
+   **pub/sub events** (`subscribe`/`emit`), **per-message key freshness**, a
+   non-blocking demux (no head-of-line deadlock), clean teardown, and a reusable
+   **`Server`** accept/dispatch abstraction. Over in-memory duplex and real TCP.
+   An end-to-end integration test runs the full client path: register → search →
+   resolve → connect (identity-verified) → authorize → invoke.
 6. ✅ **Trust v1** — `thicket-trust`: signed attestations, Sybil-resistant
    reputation, cold-start exploration ranking. (Probing/cost-to-register are
    modeled as outcome/weight inputs; enforcement policy is per-registry.)
@@ -569,10 +570,16 @@ below; ✅ = implemented with tests, ◑ = partial.
    resolve cache; closed peer membership = private federation.
 8. ◑ **Resolve federation** — referral + replication implemented; Kademlia DHT
    still deferred (the `Resolve` interface is unchanged, so it swaps underneath).
+9. ✅ **Networked directory** — `thicket-directory`: the directory plane
+   (register / resolve / search / renew / deregister) served as a Thicket
+   resource over `thicket-net`, with a typed client. Mutations are gated by the
+   channel identity (a resource may only manage its own records).
 
-**Not yet built (the network edge):** the encrypting transport adapter
-(Noise/QUIC) beneath the authentication layer, the Kademlia DHT (referral +
-replication is in place), and cross-language conformance vectors.
+**Swappable substrate still to build (below the protocol surface — a client
+cannot reshape these):** the encrypting transport adapter (Noise/QUIC) beneath
+the authentication layer, the Kademlia DHT (referral + replication is in place),
+and cross-language conformance vectors. The behavioral protocol surface that a
+client interacts with is complete.
 
 ---
 

@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 thicket-core.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

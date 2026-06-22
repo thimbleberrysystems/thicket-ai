@@ -11,12 +11,14 @@ pub mod error;
 pub mod framing;
 pub mod handshake;
 pub mod identity;
+pub mod server;
 
-pub use conn::Conn;
+pub use conn::{peer_key_fresh, Conn};
 pub use error::{Error, Result};
 pub use framing::{read_frame, write_frame, MAX_FRAME};
 pub use handshake::handshake;
 pub use identity::{LocalIdentity, VerifiedPeer};
+pub use server::{Reply, Request, Server};
 
 /// Current unix time in seconds (validity windows, lease checks).
 pub fn unix_now() -> u64 {

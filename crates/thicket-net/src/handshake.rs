@@ -81,8 +81,17 @@ where
         return Err(Error::Handshake);
     }
 
+    // Capture the validated working key's expiry for per-message freshness.
+    let key_not_after = peer_hello
+        .endorsements
+        .iter()
+        .find(|e| e.working_pub() == peer_hello.working_pub.as_slice())
+        .map(|e| e.not_after())
+        .ok_or(Error::Handshake)?;
+
     Ok(VerifiedPeer {
         id: peer_hello.id,
         working_pub: peer_hello.working_pub,
+        key_not_after,
     })
 }

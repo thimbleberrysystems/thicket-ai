@@ -5,6 +5,10 @@ use thicket_core::{Id, KeyEndorsement, RootKey, WorkingKey};
 /// Everything a node presents to authenticate itself on a channel: its id, the
 /// root public key (so the peer can check `id == hash(root)`), the working-key
 /// endorsements, and the working key it signs with.
+///
+/// `Clone` so a single identity can drive many concurrent connections (e.g. a
+/// server accepting channels).
+#[derive(Clone)]
 pub struct LocalIdentity {
     pub id: Id,
     pub root_public_key: Vec<u8>,
@@ -35,4 +39,7 @@ impl LocalIdentity {
 pub struct VerifiedPeer {
     pub id: Id,
     pub working_pub: Vec<u8>,
+    /// Expiry of the peer's endorsed working key, captured at handshake. Used to
+    /// reject messages once the key is no longer valid (per-message freshness).
+    pub key_not_after: u64,
 }

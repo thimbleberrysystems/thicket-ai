@@ -107,6 +107,10 @@ impl RootKey {
 }
 
 /// A short-lived working key used for record/envelope signing. Secret material.
+///
+/// `Clone` so one identity can sign on many concurrent connections (e.g. a
+/// server accepting many channels). Cloning copies secret key bytes.
+#[derive(Clone)]
 pub struct WorkingKey {
     signing: SigningKey,
 }

@@ -370,3 +370,94 @@ async fn bidirectional_nodes_serve_and_call() {
     a_srv.abort();
     b_srv.abort();
 }
+
+#[tokio::test]
+async fn pubsub_delivers_events_to_subscriber() {
+    let (cs, ss) = duplex(65536);
+    let (server_local, server_id) = node(1_000_000);
+    let (client_local, client_id) = node(1_000_000);
+
+    let sid = server_id.clone();
+    let server = tokio::spawn(async move {
+        let conn = Conn::connect(ss, server_local, None).await.unwrap();
+        while let Some(req) = conn.recv_request().await {
+            if req.payload.capability.as_deref() == Some("start") {
+                for i in 0..3u8 {
+                    conn.emit("updates", vec![i]).await.unwrap();
+                }
+            }
+        }
+    });
+
+    let client = Conn::connect(cs, client_local, Some(server_id.clone()))
+        .await
+        .unwrap();
+    let mut rx = client.subscribe("updates");
+    // Trigger the server to start emitting after we are subscribed.
+    client
+        .send(EnvelopePayload::request(client_id, sid, "start"))
+        .await
+        .unwrap();
+
+    let mut got = Vec::new();
+    for _ in 0..3 {
+        got.push(rx.recv().await.unwrap().payload.body[0]);
+    }
+    assert_eq!(got, vec![0, 1, 2]);
+
+    drop(client);
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn server_abstraction_dispatches_by_capability() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (server_local, server_id) = node(1_000_000);
+    let (client_local, client_id) = node(1_000_000);
+
+    let server = thicket_net::Server::new(server_local, |req: thicket_net::Request| async move {
+        match req.capability.as_str() {
+            "echo" => thicket_net::Reply::Ok(req.body),
+            _ => thicket_net::Reply::Error(ErrorCode::NotFound, "unknown capability".into()),
+        }
+    });
+    let server_task = tokio::spawn(server.serve(listener));
+
+    let client = Conn::connect(
+        TcpStream::connect(addr).await.unwrap(),
+        client_local,
+        Some(server_id.clone()),
+    )
+    .await
+    .unwrap();
+
+    let ok = client
+        .call(
+            EnvelopePayload::request(client_id.clone(), server_id.clone(), "echo")
+                .with_body(b"hey".to_vec()),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+    assert_eq!(ok.payload.body, b"hey".to_vec());
+
+    let miss = client
+        .call(
+            EnvelopePayload::request(client_id, server_id, "nope"),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+    assert_eq!(miss.payload.typ, EnvelopeType::Error);
+
+    drop(client);
+    server_task.abort();
+}
+
+#[test]
+fn peer_key_freshness_boundary() {
+    assert!(thicket_net::peer_key_fresh(100, 50));
+    assert!(thicket_net::peer_key_fresh(100, 100));
+    assert!(!thicket_net::peer_key_fresh(100, 101));
+}

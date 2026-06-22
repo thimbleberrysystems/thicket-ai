@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
 use thicket_core::{verify_revocation, Id, Revocation, RevocationSet, SignedRecord, Visibility};
 
 use crate::embedder::{cosine, Embedder};
@@ -21,7 +22,9 @@ pub enum RegistryError {
     NotAuthorized,
 }
 
-/// A semantic discovery query (plan §4 `Search(need)`).
+/// A semantic discovery query (plan §4 `Search(need)`). Serializable so it can
+/// cross the wire to a networked directory.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Need {
     pub intent_text: String,
     pub kind: Option<String>,
@@ -148,6 +151,36 @@ impl<E: Embedder> Registry<E> {
             }
         }
         Ok(())
+    }
+
+    /// Extend a record's lease (plan §12 `Renew`/heartbeat). The new expiry must
+    /// move forward. Only the record's current holder should be able to do this
+    /// over the wire; the networked directory gates that with the channel
+    /// identity. Returns the bumped expiry.
+    pub fn renew(&mut self, id: &Id, now: u64, ttl: u64) -> Result<u64, RegistryError> {
+        let stored = self.store.get_mut(id).ok_or(RegistryError::NotFound)?;
+        let lease = stored
+            .record
+            .payload
+            .lease
+            .as_mut()
+            .ok_or(RegistryError::NotFound)?;
+        lease.issued_at = now;
+        lease.ttl = ttl;
+        lease.expires_at = now + ttl;
+        Ok(lease.expires_at)
+    }
+
+    /// Withdraw a record (plan §14 `Deregister`).
+    pub fn deregister(&mut self, id: &Id) -> bool {
+        self.store.remove(id).is_some()
+    }
+
+    /// Evict records whose lease has expired as of `now`. Returns how many.
+    pub fn sweep_expired(&mut self, now: u64) -> usize {
+        let before = self.store.len();
+        self.store.retain(|_, s| !lease_expired(&s.record, now));
+        before - self.store.len()
     }
 
     /// All public, currently-live records. Used by federation to build a

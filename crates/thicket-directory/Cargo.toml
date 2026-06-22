@@ -1,0 +1,20 @@
+[package]
+name = "thicket-directory"
+description = "Thicket networked directory: a registry exposed as a Thicket resource over the wire."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thicket-core.workspace = true
+thicket-registry.workspace = true
+thicket-interconnect.workspace = true
+thicket-net.workspace = true
+serde.workspace = true
+ciborium.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

@@ -7,6 +7,7 @@ members = [
     "crates/thicket-trust",
     "crates/thicket-federation",
     "crates/thicket-net",
+    "crates/thicket-directory",
 ]
 
 [workspace.package]
@@ -28,3 +29,4 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "
 thicket-core = { path = "crates/thicket-core" }
 thicket-registry = { path = "crates/thicket-registry" }
 thicket-interconnect = { path = "crates/thicket-interconnect" }
+thicket-net = { path = "crates/thicket-net" }

@@ -255,6 +255,42 @@ fn private_records_are_not_resolvable_without_authz() {
 }
 
 #[test]
+fn renew_extends_lease_and_keeps_record_alive() {
+    let mut reg = registry();
+    // A record that expires soon.
+    let r = make_resource("model", "renewable", &[], Visibility::Public, NOW + 100, NOW);
+    let id = r.record.id().clone();
+    reg.register(r.record, NOW).unwrap();
+
+    // Past the original expiry it would drop out of search...
+    assert!(reg.search(&Need::new("renewable", 5), NOW + 200).is_empty());
+
+    // ...but after renewing, it is live again.
+    let new_expiry = reg.renew(&id, NOW + 50, 3600).unwrap();
+    assert_eq!(new_expiry, NOW + 50 + 3600);
+    assert!(reg.resolve(&id, NOW + 200).is_ok());
+    assert_eq!(reg.search(&Need::new("renewable", 5), NOW + 200).len(), 1);
+}
+
+#[test]
+fn deregister_and_sweep_remove_records() {
+    let mut reg = registry();
+    let a = make_resource("model", "alpha", &[], Visibility::Public, NOW + 100, NOW);
+    let b = make_resource("model", "beta", &[], Visibility::Public, NOW + 5000, NOW);
+    let a_id = a.record.id().clone();
+    reg.register(a.record, NOW).unwrap();
+    reg.register(b.record, NOW).unwrap();
+
+    assert!(reg.deregister(&a_id));
+    assert!(!reg.deregister(&a_id)); // already gone
+    assert_eq!(reg.len(), 1);
+
+    // `b` expires at NOW+5000; sweeping past that evicts it.
+    assert_eq!(reg.sweep_expired(NOW + 6000), 1);
+    assert!(reg.is_empty());
+}
+
+#[test]
 fn revocation_drops_the_record() {
     let mut reg = registry();
     let r = make_resource("model", "soon revoked", &[], Visibility::Public, NOW + 3600, NOW);

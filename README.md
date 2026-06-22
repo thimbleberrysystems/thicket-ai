@@ -73,7 +73,8 @@ a special node type.
 | [`thicket-interconnect`](crates/thicket-interconnect) | §6, §8 | The universal signed `Envelope`, attenuable capability `Grant`s (authorization), and the authentication handshake primitives. |
 | [`thicket-trust`](crates/thicket-trust) | §9 | Signed attestations, Sybil-resistant reputation aggregation, and cold-start-aware ranking. |
 | [`thicket-federation`](crates/thicket-federation) | §5 | Federated discovery: catalog profiles, collection selection, scatter-gather with per-record verification, global rerank, and a TTL resolve cache. Closed membership doubles as a private federation. |
-| [`thicket-net`](crates/thicket-net) | §6 | The networking spine: length-delimited framing, a mutually-authenticated async handshake, and request/response + streaming sessions over any `AsyncRead + AsyncWrite` (in-memory or TCP). |
+| [`thicket-net`](crates/thicket-net) | §6 | The networking spine: framing, a mutually-authenticated async handshake, request/response + streaming sessions, pub/sub events, per-message key freshness, and a reusable `Server` accept/dispatch abstraction — over any `AsyncRead + AsyncWrite` (in-memory or TCP). |
+| [`thicket-directory`](crates/thicket-directory) | §14 | The directory plane over the wire: a registry served as a Thicket resource (`register` / `resolve` / `search` / `renew` / `deregister`) with a typed client. Mutations are gated by the channel identity. |
 
 Dependency direction: everything depends on `thicket-core`; `net` builds on
 `interconnect`; `federation` builds on `registry`. Nothing depends on a specific
@@ -143,15 +144,17 @@ all carried by the same `Envelope` frame.
 
 ## Status
 
-Implemented as a Rust workspace with a comprehensive test suite. The directory,
-interconnect, trust, and federation layers are complete at the protocol/library
-level; the networking layer provides framed, authenticated request/response and
-streaming sessions over TCP.
+Implemented as a Rust workspace with a comprehensive test suite (57 tests). The
+**behavioral protocol surface is complete**: identity/records, registry,
+interconnect (envelope + grants), trust, federation, the networking spine
+(handshake, request/response, streaming, events, the `Server` abstraction), and
+the **networked directory** all work end-to-end over real TCP.
 
-**Not yet built (the network edge):** an encrypting transport adapter
-(Noise/QUIC) under the auth layer, a Kademlia DHT for resolve (referral +
-replication is in place), and cross-language conformance vectors. See
-[`plan.md`](plan.md) §18 for the full build order and what remains.
+**Swappable substrate still to build (below the protocol surface):** an
+encrypting transport adapter (Noise/QUIC) under the auth layer, a Kademlia DHT
+for resolve (referral + replication is in place), and cross-language conformance
+vectors. See [`plan.md`](plan.md) §18. These sit beneath/around the protocol
+surface a client sees, so they can be added without a client reshaping the core.
 
 Clients (LLM / memory / CI-CD / agent resources) are intentionally **out of
 scope** for the framework — they register and talk *over* Thicket. Example
