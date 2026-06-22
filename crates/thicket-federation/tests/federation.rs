@@ -1,7 +1,9 @@
 //! Federation tests: collection selection, scatter-gather merge/dedupe, closed
 //! (private) membership, and the TTL resolve cache.
 
-use thicket_core::{Capability, Lease, RecordPayload, RootKey, SignedRecord, Visibility, WorkingKey};
+use thicket_core::{
+    Capability, Lease, RecordPayload, RootKey, SignedRecord, Visibility, WorkingKey,
+};
 use thicket_federation::{Federation, RegistryPeer};
 use thicket_registry::{MockEmbedder, Need, Registry};
 
@@ -11,7 +13,9 @@ const NOW: u64 = 1_000_000;
 fn record(kind: &str, desc: &str, tags: &[&str]) -> SignedRecord {
     let root = RootKey::generate();
     let wk = WorkingKey::generate();
-    let endorsement = root.endorse(&wk.public(), NOW - 100, NOW + 100_000).unwrap();
+    let endorsement = root
+        .endorse(&wk.public(), NOW - 100, NOW + 100_000)
+        .unwrap();
     let payload = RecordPayload {
         schema: "thicket/record/1".into(),
         id: root.id(),
@@ -50,7 +54,11 @@ fn code_then_image_federation() -> Federation<MockEmbedder> {
         record("model", "analyze source code for bugs", &["code"]),
     ]);
     let image = registry_with(vec![
-        record("model", "generate images from text via diffusion", &["image"]),
+        record(
+            "model",
+            "generate images from text via diffusion",
+            &["image"],
+        ),
         record("model", "edit and inpaint images from a prompt", &["image"]),
     ]);
 
@@ -93,8 +101,14 @@ fn scatter_gather_dedupes_replicated_records() {
     let rec = record("model", "shared replicated model for chat", &["chat"]);
     let id = rec.id().clone();
     let mut fed = Federation::new(MockEmbedder::default());
-    fed.add_peer(Box::new(RegistryPeer::new(registry_with(vec![rec.clone()]))), NOW);
-    fed.add_peer(Box::new(RegistryPeer::new(registry_with(vec![rec.clone()]))), NOW);
+    fed.add_peer(
+        Box::new(RegistryPeer::new(registry_with(vec![rec.clone()]))),
+        NOW,
+    );
+    fed.add_peer(
+        Box::new(RegistryPeer::new(registry_with(vec![rec.clone()]))),
+        NOW,
+    );
 
     let results = fed.search(&Need::new("shared replicated model for chat", 10), NOW);
     let occurrences = results.iter().filter(|r| r.id() == &id).count();
@@ -109,7 +123,10 @@ fn closed_federation_hides_non_members() {
     let outside_id = outside.id().clone();
 
     let mut fed = Federation::new(MockEmbedder::default());
-    fed.add_peer(Box::new(RegistryPeer::new(registry_with(vec![inside]))), NOW);
+    fed.add_peer(
+        Box::new(RegistryPeer::new(registry_with(vec![inside]))),
+        NOW,
+    );
     // `outside`'s registry is deliberately NOT added.
     let _unreachable = registry_with(vec![outside]);
 

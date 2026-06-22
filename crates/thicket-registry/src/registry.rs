@@ -96,8 +96,13 @@ impl<E: Embedder> Registry<E> {
             .map(|c| self.embedder.embed(&c.description))
             .collect();
 
-        self.store
-            .insert(record.id().clone(), Stored { record, cap_embeddings });
+        self.store.insert(
+            record.id().clone(),
+            Stored {
+                record,
+                cap_embeddings,
+            },
+        );
         Ok(())
     }
 

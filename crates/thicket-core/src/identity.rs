@@ -81,7 +81,12 @@ impl RootKey {
     }
 
     /// Endorse a working key for the validity window `[not_before, not_after]`.
-    pub fn endorse(&self, working_pub: &[u8], not_before: u64, not_after: u64) -> Result<KeyEndorsement> {
+    pub fn endorse(
+        &self,
+        working_pub: &[u8],
+        not_before: u64,
+        not_after: u64,
+    ) -> Result<KeyEndorsement> {
         let view = EndorsementView {
             working_pub,
             not_before,

@@ -132,13 +132,10 @@ async fn directory_rejects_registering_another_identity() {
         now,
     );
 
-    let client = DirectoryClient::connect(
-        TcpStream::connect(addr).await.unwrap(),
-        res_local,
-        dir_id,
-    )
-    .await
-    .unwrap();
+    let client =
+        DirectoryClient::connect(TcpStream::connect(addr).await.unwrap(), res_local, dir_id)
+            .await
+            .unwrap();
 
     // The directory must refuse: you can only register your own identity.
     assert!(client.register(&foreign_record).await.is_err());

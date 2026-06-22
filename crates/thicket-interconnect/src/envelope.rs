@@ -113,7 +113,13 @@ impl EnvelopePayload {
     }
 
     /// An error reply correlated to a prior request.
-    pub fn error(from: Id, to: Id, correlation: Vec<u8>, code: ErrorCode, message: impl Into<String>) -> Self {
+    pub fn error(
+        from: Id,
+        to: Id,
+        correlation: Vec<u8>,
+        code: ErrorCode,
+        message: impl Into<String>,
+    ) -> Self {
         let mut e = Self::base(from, to, EnvelopeType::Error, correlation);
         e.error = Some(ErrorInfo {
             code,

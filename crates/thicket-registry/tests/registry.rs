@@ -91,14 +91,7 @@ fn register_and_resolve() {
 #[test]
 fn register_rejects_invalid_record() {
     let mut reg = registry();
-    let mut r = make_resource(
-        "model",
-        "x",
-        &[],
-        Visibility::Public,
-        NOW + 3600,
-        NOW,
-    );
+    let mut r = make_resource("model", "x", &[], Visibility::Public, NOW + 3600, NOW);
     r.record.payload.kind = "tampered".into(); // breaks the signature
     let err = reg.register(r.record, NOW).unwrap_err();
     assert!(matches!(err, RegistryError::Core(_)));
@@ -258,7 +251,14 @@ fn private_records_are_not_resolvable_without_authz() {
 fn renew_extends_lease_and_keeps_record_alive() {
     let mut reg = registry();
     // A record that expires soon.
-    let r = make_resource("model", "renewable", &[], Visibility::Public, NOW + 100, NOW);
+    let r = make_resource(
+        "model",
+        "renewable",
+        &[],
+        Visibility::Public,
+        NOW + 100,
+        NOW,
+    );
     let id = r.record.id().clone();
     reg.register(r.record, NOW).unwrap();
 
@@ -293,7 +293,14 @@ fn deregister_and_sweep_remove_records() {
 #[test]
 fn revocation_drops_the_record() {
     let mut reg = registry();
-    let r = make_resource("model", "soon revoked", &[], Visibility::Public, NOW + 3600, NOW);
+    let r = make_resource(
+        "model",
+        "soon revoked",
+        &[],
+        Visibility::Public,
+        NOW + 3600,
+        NOW,
+    );
     let id = r.record.id().clone();
     reg.register(r.record, NOW).unwrap();
     assert!(reg.resolve(&id, NOW).is_ok());

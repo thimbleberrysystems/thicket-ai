@@ -40,8 +40,9 @@ impl DirectoryClient {
     }
 
     async fn call(&self, capability: &str, body: Vec<u8>) -> Result<Vec<u8>> {
-        let env = EnvelopePayload::request(self.local_id.clone(), self.directory_id.clone(), capability)
-            .with_body(body);
+        let env =
+            EnvelopePayload::request(self.local_id.clone(), self.directory_id.clone(), capability)
+                .with_body(body);
         let resp = self.conn.call(env, CALL_TIMEOUT).await?;
         match resp.payload.typ {
             EnvelopeType::Error => Err(Error::Remote(
@@ -84,7 +85,8 @@ impl DirectoryClient {
 
     /// Withdraw this resource's record.
     pub async fn deregister(&self) -> Result<()> {
-        self.call(capability::DEREGISTER, to_cbor(&self.local_id)?).await?;
+        self.call(capability::DEREGISTER, to_cbor(&self.local_id)?)
+            .await?;
         Ok(())
     }
 

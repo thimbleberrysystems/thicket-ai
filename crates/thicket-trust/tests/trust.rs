@@ -89,11 +89,26 @@ fn sybil_attestations_carry_little_weight() {
     }
 
     ledger.add_attestation(
-        Attestation::issue(&reputable.id, &reputable.working, subject_a.id.clone(), "x", 1.0, NOW)
-            .unwrap(),
+        Attestation::issue(
+            &reputable.id,
+            &reputable.working,
+            subject_a.id.clone(),
+            "x",
+            1.0,
+            NOW,
+        )
+        .unwrap(),
     );
     ledger.add_attestation(
-        Attestation::issue(&sybil.id, &sybil.working, subject_b.id.clone(), "x", 1.0, NOW).unwrap(),
+        Attestation::issue(
+            &sybil.id,
+            &sybil.working,
+            subject_b.id.clone(),
+            "x",
+            1.0,
+            NOW,
+        )
+        .unwrap(),
     );
 
     let rep_a = ledger.reputation(&subject_a.id);
@@ -131,7 +146,10 @@ fn exploration_gives_newcomers_a_chance() {
 
     let est_no = score(established_rel, 0.9, 100, &no_explore);
     let new_no = score(newcomer_rel, 0.0, 0, &no_explore);
-    assert!(est_no > new_no, "without exploration the incumbent should win");
+    assert!(
+        est_no > new_no,
+        "without exploration the incumbent should win"
+    );
 
     let est_yes = score(established_rel, 0.9, 100, &with_explore);
     let new_yes = score(newcomer_rel, 0.0, 0, &with_explore);

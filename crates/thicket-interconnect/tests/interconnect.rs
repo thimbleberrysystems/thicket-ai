@@ -3,8 +3,8 @@
 
 use thicket_core::{Id, KeyEndorsement, RevocationSet, RootKey, WorkingKey};
 use thicket_interconnect::{
-    envelope::EnvelopePayload, prove, verify_proof, Caveats, Challenge, EnvelopeType, ErrorCode,
-    Error, Grant,
+    envelope::EnvelopePayload, prove, verify_proof, Caveats, Challenge, EnvelopeType, Error,
+    ErrorCode, Grant,
 };
 
 const NOW: u64 = 1_000_000;
@@ -282,8 +282,13 @@ fn envelope_signs_and_verifies() {
         .sign(&a.working)
         .unwrap();
 
-    env.verify(&a.root.public(), &a.endorsements, NOW, &RevocationSet::new())
-        .unwrap();
+    env.verify(
+        &a.root.public(),
+        &a.endorsements,
+        NOW,
+        &RevocationSet::new(),
+    )
+    .unwrap();
     assert_eq!(env.payload.typ, EnvelopeType::Request);
     assert!(!env.payload.correlation.is_empty());
 }
@@ -297,8 +302,13 @@ fn envelope_tampering_is_detected() {
         .unwrap();
     env.payload.body = b"tampered".to_vec();
     assert!(matches!(
-        env.verify(&a.root.public(), &a.endorsements, NOW, &RevocationSet::new())
-            .unwrap_err(),
+        env.verify(
+            &a.root.public(),
+            &a.endorsements,
+            NOW,
+            &RevocationSet::new()
+        )
+        .unwrap_err(),
         Error::BadEnvelope
     ));
 }
@@ -315,9 +325,10 @@ fn envelope_deadline_and_correlation() {
     assert!(req.is_expired(NOW + 11));
 
     // A response carries the request's correlation id.
-    let resp = EnvelopePayload::response(b.id.clone(), a.id.clone(), req.payload.correlation.clone())
-        .sign(&b.working)
-        .unwrap();
+    let resp =
+        EnvelopePayload::response(b.id.clone(), a.id.clone(), req.payload.correlation.clone())
+            .sign(&b.working)
+            .unwrap();
     assert_eq!(resp.payload.correlation, req.payload.correlation);
     assert_eq!(resp.payload.typ, EnvelopeType::Response);
 }
@@ -337,7 +348,10 @@ fn error_envelope_carries_code() {
     .sign(&b.working)
     .unwrap();
     assert_eq!(err.payload.typ, EnvelopeType::Error);
-    assert_eq!(err.payload.error.as_ref().unwrap().code, ErrorCode::Unauthorized);
+    assert_eq!(
+        err.payload.error.as_ref().unwrap().code,
+        ErrorCode::Unauthorized
+    );
 }
 
 // ---------- handshake ----------

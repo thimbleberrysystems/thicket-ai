@@ -207,8 +207,12 @@ impl Grant {
                 caveats: &link.caveats,
                 prev,
             };
-            verify_signature(&link.issuer_pub, &signing_bytes(GRANT_DOMAIN, &view)?, &link.sig)
-                .map_err(|_| Error::BadSignature)?;
+            verify_signature(
+                &link.issuer_pub,
+                &signing_bytes(GRANT_DOMAIN, &view)?,
+                &link.sig,
+            )
+            .map_err(|_| Error::BadSignature)?;
 
             if !link.caveats.allows_capability(capability) {
                 return Err(Error::CapabilityNotAllowed);

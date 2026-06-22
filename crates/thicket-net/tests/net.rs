@@ -211,10 +211,7 @@ async fn invocation_is_gated_by_grants() {
         .await
         .unwrap();
     assert_eq!(denied.payload.typ, EnvelopeType::Error);
-    assert_eq!(
-        denied.payload.error.unwrap().code,
-        ErrorCode::Unauthorized
-    );
+    assert_eq!(denied.payload.error.unwrap().code, ErrorCode::Unauthorized);
 
     drop(client);
     server.await.unwrap();
@@ -351,14 +348,16 @@ async fn bidirectional_nodes_serve_and_call() {
 
     let from_a = a
         .call(
-            EnvelopePayload::request(a_id.clone(), b_id.clone(), "echo").with_body(b"a->b".to_vec()),
+            EnvelopePayload::request(a_id.clone(), b_id.clone(), "echo")
+                .with_body(b"a->b".to_vec()),
             Duration::from_secs(5),
         )
         .await
         .unwrap();
     let from_b = b
         .call(
-            EnvelopePayload::request(b_id.clone(), a_id.clone(), "echo").with_body(b"b->a".to_vec()),
+            EnvelopePayload::request(b_id.clone(), a_id.clone(), "echo")
+                .with_body(b"b->a".to_vec()),
             Duration::from_secs(5),
         )
         .await

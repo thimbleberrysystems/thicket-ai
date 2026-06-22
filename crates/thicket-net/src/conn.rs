@@ -174,7 +174,8 @@ impl Conn {
                     Err(_) => continue,
                 };
                 // Authenticate every message against the handshake-proven key.
-                if env.payload.from != peer_r.id || env.verify_with_key(&peer_r.working_pub).is_err()
+                if env.payload.from != peer_r.id
+                    || env.verify_with_key(&peer_r.working_pub).is_err()
                 {
                     continue;
                 }
@@ -207,15 +208,16 @@ impl Conn {
 
     /// Send a unary request and await its correlated response (or error), up to
     /// `timeout`. The payload is signed with the local working key.
-    pub async fn call(&self, payload: EnvelopePayload, timeout: Duration) -> Result<SignedEnvelope> {
+    pub async fn call(
+        &self,
+        payload: EnvelopePayload,
+        timeout: Duration,
+    ) -> Result<SignedEnvelope> {
         let correlation = payload.correlation.clone();
         let signed = payload.sign(&self.working)?;
 
         let (tx, rx) = oneshot::channel();
-        self.pending
-            .lock()
-            .unwrap()
-            .insert(correlation.clone(), tx);
+        self.pending.lock().unwrap().insert(correlation.clone(), tx);
 
         self.out_tx
             .send(to_cbor(&signed)?)

@@ -42,7 +42,10 @@ struct IdentityProof {
 }
 
 fn binding_message(noise_static_pub: &[u8]) -> Result<Vec<u8>> {
-    Ok(signing_bytes(STATIC_BINDING_DOMAIN, &noise_static_pub.to_vec())?)
+    Ok(signing_bytes(
+        STATIC_BINDING_DOMAIN,
+        &noise_static_pub.to_vec(),
+    )?)
 }
 
 fn make_proof(local: &LocalIdentity, noise_static_pub: &[u8]) -> Result<IdentityProof> {
@@ -101,7 +104,9 @@ where
     let builder = snow::Builder::new(params);
     let keypair = builder.generate_keypair().map_err(crypto)?;
     let proof_bytes = to_cbor(&make_proof(local, &keypair.public)?)?;
-    let builder = builder.local_private_key(&keypair.private).map_err(crypto)?;
+    let builder = builder
+        .local_private_key(&keypair.private)
+        .map_err(crypto)?;
 
     let mut hs: HandshakeState = if initiator {
         builder.build_initiator().map_err(crypto)?
@@ -138,10 +143,7 @@ where
         from_cbor(&payload[..plen])?
     };
 
-    let remote_static = hs
-        .get_remote_static()
-        .ok_or(Error::Handshake)?
-        .to_vec();
+    let remote_static = hs.get_remote_static().ok_or(Error::Handshake)?.to_vec();
     let peer = verify_proof(&peer_proof, &remote_static, now)?;
     let transport = hs.into_transport_mode().map_err(crypto)?;
     Ok((transport, peer))

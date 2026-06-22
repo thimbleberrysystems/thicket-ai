@@ -1,5 +1,7 @@
 # Thicket
 
+[![CI](https://github.com/thimbleberrysystems/thicket-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/thimbleberrysystems/thicket-ai/actions/workflows/ci.yml)
+
 **A federated, language-agnostic substrate for machine-to-machine collaboration.**
 
 Thicket is a DNS-plus-dial-tone for a machine-only network. Heterogeneous
@@ -110,6 +112,15 @@ Requires a recent stable Rust toolchain.
 cargo build --workspace          # build everything
 cargo test  --workspace          # run all tests
 cargo test -p thicket-core       # test a single crate
+```
+
+The same gate that CI enforces (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml))
+can be run locally:
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 ```
 
 The framework has **no external service dependencies** for its tests: a
