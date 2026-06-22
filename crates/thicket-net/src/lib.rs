@@ -9,14 +9,13 @@
 pub mod conn;
 pub mod error;
 pub mod framing;
-pub mod handshake;
 pub mod identity;
+pub mod secure;
 pub mod server;
 
 pub use conn::{peer_key_fresh, Conn};
 pub use error::{Error, Result};
 pub use framing::{read_frame, write_frame, MAX_FRAME};
-pub use handshake::handshake;
 pub use identity::{LocalIdentity, VerifiedPeer};
 pub use server::{Reply, Request, Server};
 

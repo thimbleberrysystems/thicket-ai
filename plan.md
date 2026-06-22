@@ -539,8 +539,8 @@ Named honestly; none fully solved in v1.
 
 ## 18. Proposed build order
 
-Implemented in Rust as a Cargo workspace (`crates/`), 57 passing tests. The
-behavioral protocol surface is complete; only swappable substrate remains.
+Implemented in Rust as a Cargo workspace (`crates/`), 58 passing tests. The
+behavioral protocol surface and the encrypted transport are complete.
 Status below; ✅ = implemented with tests, ◑ = partial.
 
 1. ✅ **Record + capability schema + signing + key chain** — `thicket-core`
@@ -574,12 +574,18 @@ Status below; ✅ = implemented with tests, ◑ = partial.
    (register / resolve / search / renew / deregister) served as a Thicket
    resource over `thicket-net`, with a typed client. Mutations are gated by the
    channel identity (a resource may only manage its own records).
+10. ✅ **Encrypted transport** — `thicket-net::secure`: every channel runs over a
+    **Noise `XX_25519_ChaChaPoly_SHA256`** handshake (via `snow`), with each
+    peer's Noise static key signed by its Ed25519 working key and verified
+    against the root→working endorsement chain. Confidentiality, integrity,
+    forward secrecy, mutual auth, and identity binding — no Ed25519↔X25519 key
+    conversion. Tested for mutual auth, ciphertext-on-the-wire, and AEAD tamper
+    rejection; all functional tests now run over the encrypted channel.
 
 **Swappable substrate still to build (below the protocol surface — a client
-cannot reshape these):** the encrypting transport adapter (Noise/QUIC) beneath
-the authentication layer, the Kademlia DHT (referral + replication is in place),
-and cross-language conformance vectors. The behavioral protocol surface that a
-client interacts with is complete.
+cannot reshape these):** the Kademlia DHT for resolve (referral + replication is
+in place) and cross-language conformance vectors. The behavioral protocol
+surface and the secure channel are complete.
 
 ---
 

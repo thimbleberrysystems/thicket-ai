@@ -91,7 +91,7 @@ async fn discover_then_connect_and_invoke() {
     };
     let server = tokio::spawn(async move {
         let (sock, _) = listener.accept().await.unwrap();
-        let conn = Conn::connect(sock, server_local, None).await.unwrap();
+        let conn = Conn::accept(sock, server_local, None).await.unwrap();
         while let Some(req) = conn.recv_request().await {
             let cap = req.payload.capability.clone().unwrap_or_default();
             let authorized = req.payload.auth.as_ref().is_some_and(|g| {

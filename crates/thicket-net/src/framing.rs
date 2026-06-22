@@ -48,21 +48,3 @@ pub async fn read_frame<R: AsyncRead + Unpin>(r: &mut R) -> Result<Option<Vec<u8
     r.read_exact(&mut buf).await?;
     Ok(Some(buf))
 }
-
-/// Encode and write a CBOR message as a frame.
-pub(crate) async fn write_msg<W: AsyncWrite + Unpin, T: Serialize>(
-    w: &mut W,
-    msg: &T,
-) -> Result<()> {
-    write_frame(w, &to_cbor(msg)?).await
-}
-
-/// Read and decode a CBOR message from a frame.
-pub(crate) async fn read_msg<R: AsyncRead + Unpin, T: DeserializeOwned>(
-    r: &mut R,
-) -> Result<Option<T>> {
-    match read_frame(r).await? {
-        Some(bytes) => Ok(Some(from_cbor(&bytes)?)),
-        None => Ok(None),
-    }
-}

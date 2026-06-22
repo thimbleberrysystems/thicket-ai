@@ -8,6 +8,8 @@ pub enum Error {
     Codec(String),
     #[error("handshake failed")]
     Handshake,
+    #[error("secure channel: {0}")]
+    Crypto(String),
     #[error("peer identity is not the expected one")]
     PeerMismatch,
     #[error("request timed out")]

@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use snow::TransportState;
 use thicket_core::{Id, WorkingKey};
 use thicket_interconnect::{EnvelopePayload, EnvelopeType, SignedEnvelope};
 use tokio::io::{split, AsyncRead, AsyncWrite};
@@ -14,8 +15,8 @@ use tokio::task::AbortHandle;
 
 use crate::error::{Error, Result};
 use crate::framing::{from_cbor, read_frame, to_cbor, write_frame};
-use crate::handshake::handshake;
 use crate::identity::{LocalIdentity, VerifiedPeer};
+use crate::secure;
 use crate::unix_now;
 
 type Pending = Arc<Mutex<HashMap<Vec<u8>, oneshot::Sender<SignedEnvelope>>>>;
@@ -57,8 +58,8 @@ impl Drop for Conn {
 }
 
 impl Conn {
-    /// Establish a connection over `stream`: handshake, then spawn the reader and
-    /// writer tasks. If `expected_peer` is set, the authenticated peer must match.
+    /// Dial and establish an encrypted, authenticated connection (Noise
+    /// initiator). If `expected_peer` is set, the authenticated peer must match.
     pub async fn connect<S>(
         stream: S,
         local: LocalIdentity,
@@ -67,10 +68,33 @@ impl Conn {
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
-        let (mut r, mut w) = split(stream);
-        let peer = tokio::time::timeout(
+        Self::establish(stream, local, expected_peer, true).await
+    }
+
+    /// Accept an incoming connection (Noise responder).
+    pub async fn accept<S>(
+        stream: S,
+        local: LocalIdentity,
+        expected_peer: Option<Id>,
+    ) -> Result<Arc<Conn>>
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
+        Self::establish(stream, local, expected_peer, false).await
+    }
+
+    async fn establish<S>(
+        mut stream: S,
+        local: LocalIdentity,
+        expected_peer: Option<Id>,
+        initiator: bool,
+    ) -> Result<Arc<Conn>>
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
+        let (transport, peer) = tokio::time::timeout(
             HANDSHAKE_TIMEOUT,
-            handshake(&mut r, &mut w, &local, unix_now()),
+            secure::establish(&mut stream, &local, initiator, unix_now()),
         )
         .await
         .map_err(|_| Error::Timeout)??;
@@ -80,30 +104,46 @@ impl Conn {
             }
         }
 
+        // Shared Noise transport: locked only around the synchronous AEAD op,
+        // never across an await.
+        let transport: Arc<Mutex<TransportState>> = Arc::new(Mutex::new(transport));
+        let (mut r, mut w) = split(stream);
+
         let (out_tx, mut out_rx) = mpsc::channel::<Vec<u8>>(256);
         let (inbound_tx, inbound_rx) = mpsc::channel::<SignedEnvelope>(256);
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
         let streams: Streams = Arc::new(Mutex::new(HashMap::new()));
         let event_subs: EventSubs = Arc::new(Mutex::new(HashMap::new()));
 
-        // Writer task: drain queued frames to the wire.
+        // Writer task: encrypt each queued frame and write it to the wire.
+        let transport_w = transport.clone();
         let writer_task = tokio::spawn(async move {
             while let Some(frame) = out_rx.recv().await {
-                if write_frame(&mut w, &frame).await.is_err() {
-                    break;
+                let encrypted = {
+                    let mut t = transport_w.lock().unwrap();
+                    secure::encrypt_frame(&mut t, &frame)
+                };
+                match encrypted {
+                    Ok(bytes) => {
+                        if write_frame(&mut w, &bytes).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
                 }
             }
         })
         .abort_handle();
 
-        // Reader task: demultiplex incoming envelopes.
+        // Reader task: decrypt and demultiplex incoming envelopes.
         let peer_r = peer.clone();
         let pending_r = pending.clone();
         let streams_r = streams.clone();
         let event_subs_r = event_subs.clone();
+        let transport_r = transport.clone();
         let reader_task = tokio::spawn(async move {
             loop {
-                let bytes = match read_frame(&mut r).await {
+                let blob = match read_frame(&mut r).await {
                     Ok(Some(b)) => b,
                     _ => break, // EOF or error: connection done
                 };
@@ -112,7 +152,15 @@ impl Conn {
                 if !peer_key_fresh(peer_r.key_not_after, unix_now()) {
                     break;
                 }
-                let env: SignedEnvelope = match from_cbor(&bytes) {
+                let plaintext = {
+                    let mut t = transport_r.lock().unwrap();
+                    secure::decrypt_frame(&mut t, &blob)
+                };
+                let plaintext = match plaintext {
+                    Ok(p) => p,
+                    Err(_) => break, // AEAD failure: corrupt or hostile, close
+                };
+                let env: SignedEnvelope = match from_cbor(&plaintext) {
                     Ok(e) => e,
                     Err(_) => continue,
                 };

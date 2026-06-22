@@ -26,6 +26,7 @@ rand = "0.8"
 hex = "0.4"
 thiserror = "2"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
+snow = "0.10"
 thicket-core = { path = "crates/thicket-core" }
 thicket-registry = { path = "crates/thicket-registry" }
 thicket-interconnect = { path = "crates/thicket-interconnect" }

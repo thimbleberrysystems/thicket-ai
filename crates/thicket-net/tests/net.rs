@@ -51,7 +51,7 @@ async fn request_response_over_duplex() {
     let (client_local, client_id) = node(1_000_000);
 
     let server = tokio::spawn(async move {
-        let conn = Conn::connect(ss, server_local, None).await.unwrap();
+        let conn = Conn::accept(ss, server_local, None).await.unwrap();
         serve_echo(conn).await;
     });
 
@@ -79,7 +79,7 @@ async fn request_times_out_when_unanswered() {
     let (client_local, client_id) = node(1_000_000);
 
     let server = tokio::spawn(async move {
-        let conn = Conn::connect(ss, server_local, None).await.unwrap();
+        let conn = Conn::accept(ss, server_local, None).await.unwrap();
         // Receive the request but never answer; keep the conn alive.
         let _req = conn.recv_request().await;
         tokio::time::sleep(Duration::from_millis(300)).await;
@@ -108,7 +108,7 @@ async fn connecting_to_unexpected_peer_is_rejected() {
 
     let server = tokio::spawn(async move {
         // Server still completes its side of the handshake.
-        let _ = Conn::connect(ss, server_local, None).await;
+        let _ = Conn::accept(ss, server_local, None).await;
     });
 
     let result = Conn::connect(cs, client_local, Some(wrong_id)).await;
@@ -152,7 +152,7 @@ async fn invocation_is_gated_by_grants() {
     let (cs, ss) = duplex(65536);
     let server_id_task = server_id.clone();
     let server = tokio::spawn(async move {
-        let conn = Conn::connect(ss, server_local, None).await.unwrap();
+        let conn = Conn::accept(ss, server_local, None).await.unwrap();
         while let Some(req) = conn.recv_request().await {
             let cap = req.payload.capability.clone().unwrap_or_default();
             let ok = req.payload.auth.as_ref().is_some_and(|g| {
@@ -228,7 +228,7 @@ async fn streaming_delivers_ordered_chunks() {
 
     let server_id_task = server_id.clone();
     let server = tokio::spawn(async move {
-        let conn = Conn::connect(ss, server_local, None).await.unwrap();
+        let conn = Conn::accept(ss, server_local, None).await.unwrap();
         while let Some(req) = conn.recv_request().await {
             if req.payload.capability.as_deref() == Some("count") {
                 for seq in 0..3u64 {
@@ -273,7 +273,7 @@ async fn request_response_over_real_tcp() {
 
     let server = tokio::spawn(async move {
         let (sock, _) = listener.accept().await.unwrap();
-        let conn = Conn::connect(sock, server_local, None).await.unwrap();
+        let conn = Conn::accept(sock, server_local, None).await.unwrap();
         serve_echo(conn).await;
     });
 
@@ -301,7 +301,7 @@ async fn many_concurrent_calls_are_multiplexed() {
     let (client_local, client_id) = node(1_000_000);
 
     let server = tokio::spawn(async move {
-        let conn = Conn::connect(ss, server_local, None).await.unwrap();
+        let conn = Conn::accept(ss, server_local, None).await.unwrap();
         serve_echo(conn).await;
     });
 
@@ -342,7 +342,7 @@ async fn bidirectional_nodes_serve_and_call() {
     let (a_local, a_id) = node(1_000_000);
     let (b_local, b_id) = node(1_000_000);
 
-    let a_task = tokio::spawn(Conn::connect(a_stream, a_local, None));
+    let a_task = tokio::spawn(Conn::accept(a_stream, a_local, None));
     let b = Conn::connect(b_stream, b_local, None).await.unwrap();
     let a = a_task.await.unwrap().unwrap();
 
@@ -379,7 +379,7 @@ async fn pubsub_delivers_events_to_subscriber() {
 
     let sid = server_id.clone();
     let server = tokio::spawn(async move {
-        let conn = Conn::connect(ss, server_local, None).await.unwrap();
+        let conn = Conn::accept(ss, server_local, None).await.unwrap();
         while let Some(req) = conn.recv_request().await {
             if req.payload.capability.as_deref() == Some("start") {
                 for i in 0..3u8 {

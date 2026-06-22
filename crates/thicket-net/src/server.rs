@@ -60,7 +60,7 @@ impl Server {
             let identity = self.identity.clone();
             let handler = self.handler.clone();
             tokio::spawn(async move {
-                if let Ok(conn) = Conn::connect(sock, identity, None).await {
+                if let Ok(conn) = Conn::accept(sock, identity, None).await {
                     serve_conn(conn, handler).await;
                 }
             });
