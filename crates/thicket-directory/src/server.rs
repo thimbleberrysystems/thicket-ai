@@ -24,6 +24,14 @@ pub struct DirectoryServer<E: Embedder + 'static> {
     registry: Arc<Mutex<Registry<E>>>,
 }
 
+impl<E: Embedder + 'static> std::fmt::Debug for DirectoryServer<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DirectoryServer")
+            .field("identity", &self.identity)
+            .finish_non_exhaustive()
+    }
+}
+
 impl<E: Embedder + 'static> DirectoryServer<E> {
     pub fn new(identity: LocalIdentity, registry: Registry<E>) -> Self {
         Self {

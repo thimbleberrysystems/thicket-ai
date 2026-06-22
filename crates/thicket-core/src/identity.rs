@@ -57,6 +57,13 @@ pub struct RootKey {
     signing: SigningKey,
 }
 
+impl fmt::Debug for RootKey {
+    // Redacted: never expose secret key material.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RootKey").field("id", &self.id()).finish()
+    }
+}
+
 impl RootKey {
     pub fn generate() -> Self {
         let mut rng = OsRng;
@@ -113,6 +120,15 @@ impl RootKey {
 #[derive(Clone)]
 pub struct WorkingKey {
     signing: SigningKey,
+}
+
+impl fmt::Debug for WorkingKey {
+    // Redacted: print only the (public) verifying key, never the secret.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WorkingKey")
+            .field("public", &hex::encode(self.public()))
+            .finish()
+    }
 }
 
 impl WorkingKey {
@@ -234,7 +250,7 @@ pub fn verify_working_key(
 }
 
 /// A set of revoked working keys, consulted during record verification.
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct RevocationSet {
     revoked: HashSet<Vec<u8>>,
 }

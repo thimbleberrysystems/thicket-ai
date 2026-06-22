@@ -16,6 +16,7 @@ use crate::wire::{from_cbor, to_cbor, RenewArgs};
 const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A connection to a directory, exposing the directory plane as typed calls.
+#[derive(Debug)]
 pub struct DirectoryClient {
     conn: Arc<Conn>,
     local_id: Id,

@@ -13,7 +13,7 @@ use thicket_core::Id;
 use crate::attestation::Attestation;
 
 /// Tracks outcomes and verified attestations, and derives reputation.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct ReputationLedger {
     /// id → (successes, failures)
     outcomes: HashMap<Id, (u64, u64)>,

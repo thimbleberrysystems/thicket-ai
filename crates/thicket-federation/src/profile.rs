@@ -9,6 +9,7 @@ use thicket_registry::Embedder;
 
 /// A compact summary of a registry's catalog: a capability-embedding centroid
 /// plus the kinds/tags it holds and a size.
+#[derive(Debug, Clone)]
 pub struct CatalogProfile {
     pub centroid: Vec<f32>,
     pub kinds: BTreeSet<String>,

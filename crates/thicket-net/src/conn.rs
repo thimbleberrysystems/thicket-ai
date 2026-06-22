@@ -47,6 +47,15 @@ pub struct Conn {
     writer_task: AbortHandle,
 }
 
+impl std::fmt::Debug for Conn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Conn")
+            .field("local_id", &self.local_id)
+            .field("peer", &self.peer.id)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Drop for Conn {
     fn drop(&mut self) {
         // Abort the I/O tasks so both stream halves are released promptly. Until

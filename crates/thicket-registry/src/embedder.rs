@@ -17,6 +17,7 @@ pub trait Embedder: Send + Sync {
 /// Deterministic hashing embedder: a normalized bag-of-hashed-words. Shares
 /// direction with text that shares vocabulary, which is enough to exercise the
 /// ranking pipeline without a real model.
+#[derive(Debug, Clone)]
 pub struct MockEmbedder {
     dim: usize,
 }

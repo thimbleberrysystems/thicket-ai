@@ -5,17 +5,12 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 /// Who may discover a record (plan §10).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Visibility {
+    #[default]
     Public,
     Unlisted,
     Private,
-}
-
-impl Default for Visibility {
-    fn default() -> Self {
-        Visibility::Public
-    }
 }
 
 /// The structural I/O contract layer of a capability.

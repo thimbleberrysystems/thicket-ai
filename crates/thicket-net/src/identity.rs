@@ -16,6 +16,15 @@ pub struct LocalIdentity {
     pub working: WorkingKey,
 }
 
+impl std::fmt::Debug for LocalIdentity {
+    // Redacted: the working key holds secret material.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LocalIdentity")
+            .field("id", &self.id)
+            .finish_non_exhaustive()
+    }
+}
+
 impl LocalIdentity {
     /// Build a local identity from a root key, generating and endorsing a fresh
     /// working key valid for `valid_secs` from now.

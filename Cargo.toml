@@ -16,6 +16,14 @@ edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/thicket-ai/thicket"
 
+# Guideline lints enforced across every crate (opt in per crate with
+# `[lints] workspace = true`).
+[workspace.lints.rust]
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = "warn"
+unused_qualifications = "warn"
+
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

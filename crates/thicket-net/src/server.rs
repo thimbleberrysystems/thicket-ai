@@ -15,6 +15,7 @@ use crate::error::Result;
 use crate::identity::{LocalIdentity, VerifiedPeer};
 
 /// An inbound request handed to a [`Server`] handler.
+#[derive(Debug, Clone)]
 pub struct Request {
     pub capability: String,
     pub body: Vec<u8>,
@@ -24,6 +25,7 @@ pub struct Request {
 }
 
 /// What a handler returns for a request.
+#[derive(Debug, Clone)]
 pub enum Reply {
     Ok(Vec<u8>),
     Error(ErrorCode, String),
@@ -36,6 +38,14 @@ type BoxedHandler =
 pub struct Server {
     identity: LocalIdentity,
     handler: BoxedHandler,
+}
+
+impl std::fmt::Debug for Server {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Server")
+            .field("identity", &self.identity)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Server {

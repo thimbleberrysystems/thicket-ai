@@ -17,6 +17,14 @@ pub struct RegistryPeer<E: Embedder> {
     registry: Registry<E>,
 }
 
+impl<E: Embedder> std::fmt::Debug for RegistryPeer<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RegistryPeer")
+            .field("registry", &self.registry)
+            .finish()
+    }
+}
+
 impl<E: Embedder> RegistryPeer<E> {
     pub fn new(registry: Registry<E>) -> Self {
         Self { registry }
