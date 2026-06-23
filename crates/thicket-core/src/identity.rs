@@ -72,6 +72,13 @@ impl RootKey {
         }
     }
 
+    /// Deterministic key from a 32-byte seed — for conformance vectors / tests.
+    pub fn from_seed(seed: &[u8; 32]) -> Self {
+        Self {
+            signing: SigningKey::from_bytes(seed),
+        }
+    }
+
     pub fn public(&self) -> Vec<u8> {
         self.signing.verifying_key().to_bytes().to_vec()
     }
@@ -141,6 +148,13 @@ impl WorkingKey {
         let mut rng = OsRng;
         Self {
             signing: SigningKey::generate(&mut rng),
+        }
+    }
+
+    /// Deterministic key from a 32-byte seed — for conformance vectors / tests.
+    pub fn from_seed(seed: &[u8; 32]) -> Self {
+        Self {
+            signing: SigningKey::from_bytes(seed),
         }
     }
 

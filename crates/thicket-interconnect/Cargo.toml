@@ -17,3 +17,7 @@ serde_json.workspace = true
 ciborium.workspace = true
 rand.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+ciborium.workspace = true
+serde.workspace = true

@@ -53,6 +53,12 @@ pub struct RecordPayload {
 }
 
 impl RecordPayload {
+    /// The exact canonical bytes that get signed for this payload — the
+    /// cross-language ground truth (`domain ‖ 0x00 ‖ CBOR`).
+    pub fn signing_input(&self) -> Result<Vec<u8>> {
+        signing_bytes(RECORD_DOMAIN, self)
+    }
+
     /// Sign this payload with a working key, producing a [`SignedRecord`].
     pub fn sign(self, working: &WorkingKey) -> Result<SignedRecord> {
         let msg = signing_bytes(RECORD_DOMAIN, &self)?;

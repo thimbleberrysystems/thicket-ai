@@ -216,6 +216,11 @@ impl EnvelopePayload {
         self
     }
 
+    /// The exact canonical bytes signed for this payload (cross-language truth).
+    pub fn signing_input(&self) -> Result<Vec<u8>> {
+        Ok(signing_bytes(ENVELOPE_DOMAIN, self)?)
+    }
+
     /// Sign with a working key, producing a [`SignedEnvelope`].
     pub fn sign(self, working: &WorkingKey) -> Result<SignedEnvelope> {
         let msg = signing_bytes(ENVELOPE_DOMAIN, &self)?;
