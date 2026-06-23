@@ -29,8 +29,10 @@ def _enc_head(major: int, n: int, out: bytearray) -> None:
 
 
 def _enc(obj, out: bytearray) -> None:
+    if obj is None:
+        out.append(0xF6)  # CBOR null (for un-skipped Option::None)
     # bool first — it is a subclass of int in Python.
-    if isinstance(obj, bool):
+    elif isinstance(obj, bool):
         out.append(0xF5 if obj else 0xF4)
     elif isinstance(obj, int):
         if obj < 0:
@@ -73,6 +75,8 @@ def _dec(data: bytes, i: int):
             return False, i
         if info == 21:
             return True, i
+        if info == 22:
+            return None, i  # CBOR null
         raise ValueError(f"unsupported simple value {info}")
     # length / value
     if info < 24:

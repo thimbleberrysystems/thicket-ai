@@ -13,9 +13,12 @@ Implemented so far:
 - `thicket.record` — build / sign / verify fiber records.
 - `thicket.envelope` — build / sign / verify envelopes.
 - `thicket.grant` — issue / attenuate (narrowing-enforced) / verify grants.
+- `thicket.secure` / `conn` / `framing` — Noise `XX` channel with Ed25519
+  identity binding, async connection, and length framing.
+- `thicket.directory` — `DirectoryClient` (register / resolve / search / …).
 
-Only dependency: `cryptography` (Ed25519/SHA-256). CBOR is hand-rolled for
-byte-exact control.
+Dependencies: `cryptography` (Ed25519/SHA-256) and `noiseprotocol` (Noise, as
+Rust uses `snow`). CBOR is hand-rolled for byte-exact control.
 
 ## Test
 
@@ -24,11 +27,14 @@ cd sdk/py
 PYTHONPATH=. python3 -m unittest discover -s tests
 ```
 
-The conformance suite builds records/envelopes/grants from the same fixed seeds
-as the Rust vectors and asserts the bytes match exactly, and that Rust-produced
-records verify in Python.
+The suite (a) builds records/envelopes/grants from the same fixed seeds as the
+Rust vectors and asserts the bytes match exactly; and (b) **interoperates live**
+with the Rust core over TCP+Noise — a Python client invokes a Rust echo server,
+and a Python fiber registers with / resolves from / searches a Rust directory.
 
-## Not yet implemented
+Add the dep and build the Rust example servers for the interop tests:
 
-The networking layer — Noise `XX` handshake, async connection, directory client,
-and live interop with a Rust core node over TCP — is the next milestone.
+```bash
+pip install noiseprotocol
+cargo build --workspace --examples
+```
