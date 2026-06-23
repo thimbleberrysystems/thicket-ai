@@ -34,8 +34,10 @@ pub struct Capability {
     pub tags: Vec<String>,
     #[serde(default)]
     pub modalities: Vec<String>,
+    /// Advisory perf/economic profile (cost, latency, …), string-encoded to stay
+    /// out of float canonicalization in the signed form.
     #[serde(default)]
-    pub envelope: BTreeMap<String, f64>,
+    pub envelope: BTreeMap<String, String>,
 }
 
 impl Capability {

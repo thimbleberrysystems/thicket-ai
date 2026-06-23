@@ -20,7 +20,7 @@ const REVOKE_DOMAIN: &str = "thicket-revocation-v1";
 
 /// A self-certifying identity: `sha256(root_public_key)`.
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Id(Vec<u8>);
+pub struct Id(#[serde(with = "serde_bytes")] Vec<u8>);
 
 impl Id {
     /// Derive the id from a 32-byte root public key.
@@ -155,6 +155,7 @@ impl WorkingKey {
 
 #[derive(Serialize)]
 struct EndorsementView<'a> {
+    #[serde(with = "serde_bytes")]
     working_pub: &'a [u8],
     not_before: u64,
     not_after: u64,
@@ -162,6 +163,7 @@ struct EndorsementView<'a> {
 
 #[derive(Serialize)]
 struct RevocationView<'a> {
+    #[serde(with = "serde_bytes")]
     working_pub: &'a [u8],
     issued_at: u64,
 }
@@ -169,9 +171,11 @@ struct RevocationView<'a> {
 /// A root-signed endorsement of a working key, carried inside a record.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct KeyEndorsement {
+    #[serde(with = "serde_bytes")]
     pub(crate) working_pub: Vec<u8>,
     pub(crate) not_before: u64,
     pub(crate) not_after: u64,
+    #[serde(with = "serde_bytes")]
     pub(crate) root_sig: Vec<u8>,
 }
 
@@ -190,8 +194,10 @@ impl KeyEndorsement {
 /// A root-signed statement that a working key is revoked.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Revocation {
+    #[serde(with = "serde_bytes")]
     pub(crate) working_pub: Vec<u8>,
     pub(crate) issued_at: u64,
+    #[serde(with = "serde_bytes")]
     pub(crate) root_sig: Vec<u8>,
 }
 

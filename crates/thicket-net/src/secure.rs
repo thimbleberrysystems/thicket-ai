@@ -34,17 +34,20 @@ fn crypto<E: std::fmt::Display>(e: E) -> Error {
 #[derive(Serialize, Deserialize)]
 struct IdentityProof {
     id: Id,
+    #[serde(with = "serde_bytes")]
     root_public_key: Vec<u8>,
     endorsements: Vec<KeyEndorsement>,
+    #[serde(with = "serde_bytes")]
     working_pub: Vec<u8>,
     /// `sign(working, domain ‖ noise_static_pub)`.
+    #[serde(with = "serde_bytes")]
     static_sig: Vec<u8>,
 }
 
 fn binding_message(noise_static_pub: &[u8]) -> Result<Vec<u8>> {
     Ok(signing_bytes(
         STATIC_BINDING_DOMAIN,
-        &noise_static_pub.to_vec(),
+        serde_bytes::Bytes::new(noise_static_pub),
     )?)
 }
 

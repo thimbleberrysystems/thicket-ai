@@ -71,18 +71,24 @@ impl Caveats {
 /// One link in a grant's delegation chain.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GrantLink {
+    #[serde(with = "serde_bytes")]
     pub issuer_pub: Vec<u8>,
+    #[serde(with = "serde_bytes")]
     pub audience_pub: Vec<u8>,
     pub caveats: Caveats,
+    #[serde(with = "serde_bytes")]
     pub sig: Vec<u8>,
 }
 
 #[derive(Serialize)]
 struct LinkView<'a> {
     target: &'a Id,
+    #[serde(with = "serde_bytes")]
     issuer_pub: &'a [u8],
+    #[serde(with = "serde_bytes")]
     audience_pub: &'a [u8],
     caveats: &'a Caveats,
+    #[serde(with = "serde_bytes")]
     prev: &'a [u8],
 }
 

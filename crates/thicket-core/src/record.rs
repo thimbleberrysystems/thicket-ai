@@ -24,6 +24,7 @@ pub struct RecordPayload {
     /// Self-certifying identity = `sha256(root_public_key)`.
     pub id: Id,
     /// The root public key, so a verifier can check `id == sha256(this)`.
+    #[serde(with = "serde_bytes")]
     pub root_public_key: Vec<u8>,
     /// Root-signed endorsements of the working keys this resource uses.
     pub keys: Vec<KeyEndorsement>,
@@ -33,9 +34,10 @@ pub struct RecordPayload {
     pub locators: Vec<Locator>,
     #[serde(default)]
     pub capabilities: Vec<Capability>,
-    /// Perf/economic profile (cost, latency, …).
+    /// Perf/economic profile (cost, latency, …). Advisory, string-encoded so it
+    /// stays out of the float-canonicalization hazard in the signed form.
     #[serde(default)]
-    pub profile: BTreeMap<String, f64>,
+    pub profile: BTreeMap<String, String>,
     /// What the resource speaks, for negotiation (patterns, codecs, …).
     #[serde(default)]
     pub supports: BTreeMap<String, String>,
@@ -68,7 +70,9 @@ impl RecordPayload {
 pub struct SignedRecord {
     pub payload: RecordPayload,
     /// The working public key that produced `signature`.
+    #[serde(with = "serde_bytes")]
     pub signer_pub: Vec<u8>,
+    #[serde(with = "serde_bytes")]
     pub signature: Vec<u8>,
 }
 

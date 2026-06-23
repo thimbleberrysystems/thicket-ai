@@ -19,6 +19,7 @@ const HANDSHAKE_DOMAIN: &str = "thicket-handshake-v1";
 /// A random nonce a verifier issues for the peer to sign.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Challenge {
+    #[serde(with = "serde_bytes")]
     pub nonce: Vec<u8>,
 }
 
@@ -38,6 +39,7 @@ impl Default for Challenge {
 
 #[derive(Serialize)]
 struct ProofView<'a> {
+    #[serde(with = "serde_bytes")]
     nonce: &'a [u8],
     id: &'a Id,
 }
@@ -46,7 +48,9 @@ struct ProofView<'a> {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Proof {
     pub id: Id,
+    #[serde(with = "serde_bytes")]
     pub working_pub: Vec<u8>,
+    #[serde(with = "serde_bytes")]
     pub sig: Vec<u8>,
 }
 

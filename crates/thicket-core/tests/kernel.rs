@@ -33,7 +33,7 @@ fn fixture(now: u64) -> (RootKey, WorkingKey, SignedRecord) {
             Capability::new("model", "long-context reasoning over source code")
                 .with_tags(["code", "reasoning"]),
         ],
-        profile: BTreeMap::from([("cost_per_1k".into(), 0.5)]),
+        profile: BTreeMap::from([("cost_per_1k".into(), "0.5".into())]),
         supports: BTreeMap::new(),
         visibility: Visibility::Public,
         lease: Some(Lease {
@@ -176,4 +176,29 @@ fn json_roundtrip_preserves_verifiability() {
     let json = record.to_json().unwrap();
     let decoded = SignedRecord::from_json(&json).unwrap();
     decoded.verify(NOW, &RevocationSet::new()).unwrap();
+}
+
+#[test]
+fn ids_encode_as_cbor_byte_strings() {
+    // Byte fields must serialize as CBOR byte strings (major type 2), not arrays
+    // of integers — this is the cross-language canonical-encoding guarantee.
+    let id = RootKey::generate().id();
+    let mut buf = Vec::new();
+    ciborium::into_writer(&id, &mut buf).unwrap();
+    // 32-byte byte string => header 0x58 (major type 2, 1-byte length) + 0x20 (32)
+    assert_eq!(buf[0], 0x58, "expected CBOR byte-string header (major type 2)");
+    assert_eq!(buf[1], 32);
+    assert_eq!(buf.len(), 2 + 32);
+}
+
+#[test]
+fn signature_encodes_as_cbor_byte_string() {
+    // The 64-byte signature must appear in the record's CBOR as a byte string —
+    // header 0x58 0x40 (major type 2, 1-byte length = 64) — not an int array.
+    let (_root, _wk, record) = fixture(NOW);
+    let cbor = record.to_cbor().unwrap();
+    assert!(
+        cbor.windows(2).any(|w| w == [0x58, 0x40]),
+        "expected a 64-byte CBOR byte string (the signature) in the record",
+    );
 }

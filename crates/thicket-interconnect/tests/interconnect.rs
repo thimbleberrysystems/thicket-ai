@@ -410,3 +410,55 @@ fn handshake_rejects_unendorsed_key() {
     )
     .is_err());
 }
+
+// ---------- context block ----------
+
+#[test]
+fn context_child_tightens_deadline_and_budget() {
+    use thicket_interconnect::Context;
+    let parent = Context {
+        trace_id: vec![1, 2, 3],
+        span_id: vec![9],
+        parent_span_id: vec![],
+        deadline: Some(100),
+        budget: Some(50),
+    };
+    let child = parent.child(vec![10], Some(80), 20);
+
+    assert_eq!(child.trace_id, parent.trace_id, "same trace");
+    assert_eq!(child.parent_span_id, vec![9], "parent linkage");
+    assert_eq!(child.span_id, vec![10]);
+    // child ≤ parent for both deadline and budget
+    assert!(child.deadline.unwrap() <= parent.deadline.unwrap());
+    assert_eq!(child.deadline, Some(80)); // min(100, 80)
+    assert!(child.budget.unwrap() <= parent.budget.unwrap());
+    assert_eq!(child.budget, Some(30)); // 50 - 20
+
+    assert!(parent.deadline_passed(101));
+    assert!(!parent.deadline_passed(100));
+}
+
+#[test]
+fn envelope_carries_context_through_sign_and_verify() {
+    use thicket_interconnect::Context;
+    let a = identity();
+    let b = identity();
+    let ctx = Context {
+        trace_id: vec![7; 16],
+        span_id: vec![1],
+        parent_span_id: vec![],
+        deadline: Some(NOW + 5),
+        budget: Some(1000),
+    };
+    let env = EnvelopePayload::request(a.id.clone(), b.id.clone(), "x")
+        .with_context(ctx)
+        .sign(&a.working)
+        .unwrap();
+
+    env.verify(&a.root.public(), &a.endorsements, NOW, &RevocationSet::new())
+        .unwrap();
+    assert_eq!(env.payload.context.trace_id, vec![7; 16]);
+    assert_eq!(env.payload.context.budget, Some(1000));
+    assert!(!env.is_expired(NOW));
+    assert!(env.is_expired(NOW + 6));
+}

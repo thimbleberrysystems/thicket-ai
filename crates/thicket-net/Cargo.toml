@@ -13,6 +13,7 @@ workspace = true
 thicket-core.workspace = true
 thicket-interconnect.workspace = true
 serde.workspace = true
+serde_bytes.workspace = true
 ciborium.workspace = true
 rand.workspace = true
 thiserror.workspace = true

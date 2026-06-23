@@ -47,6 +47,58 @@ pub struct ErrorInfo {
     pub message: String,
 }
 
+/// Cross-cutting context propagated in-band (plan §6): distributed tracing,
+/// deadline, and budget. Fibers self-report spans against it and **tighten** it
+/// for downstream calls (a child's deadline/budget can only shrink).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Context {
+    #[serde(default, with = "serde_bytes", skip_serializing_if = "Vec::is_empty")]
+    pub trace_id: Vec<u8>,
+    #[serde(default, with = "serde_bytes", skip_serializing_if = "Vec::is_empty")]
+    pub span_id: Vec<u8>,
+    #[serde(default, with = "serde_bytes", skip_serializing_if = "Vec::is_empty")]
+    pub parent_span_id: Vec<u8>,
+    /// Hard deadline (unix seconds); `None` = none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deadline: Option<u64>,
+    /// Remaining spend allowance; `None` = unmetered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<u64>,
+}
+
+impl Context {
+    pub fn is_empty(&self) -> bool {
+        self.trace_id.is_empty()
+            && self.span_id.is_empty()
+            && self.parent_span_id.is_empty()
+            && self.deadline.is_none()
+            && self.budget.is_none()
+    }
+
+    /// Derive the context for a downstream call: same trace, a fresh span, this
+    /// span becomes the parent, and deadline/budget can only **tighten**
+    /// (child ≤ parent). `local_deadline` lets the caller impose a tighter bound;
+    /// `spent` debits the budget.
+    pub fn child(&self, new_span_id: Vec<u8>, local_deadline: Option<u64>, spent: u64) -> Context {
+        let deadline = match (self.deadline, local_deadline) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        Context {
+            trace_id: self.trace_id.clone(),
+            span_id: new_span_id,
+            parent_span_id: self.span_id.clone(),
+            deadline,
+            budget: self.budget.map(|b| b.saturating_sub(spent)),
+        }
+    }
+
+    /// Has the deadline passed at `now`?
+    pub fn deadline_passed(&self, now: u64) -> bool {
+        self.deadline.is_some_and(|d| now > d)
+    }
+}
+
 /// The signed body of an envelope.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EnvelopePayload {
@@ -57,12 +109,13 @@ pub struct EnvelopePayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capability: Option<String>,
     /// Links request ↔ response(s) and a multi-turn exchange.
+    #[serde(with = "serde_bytes")]
     pub correlation: Vec<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
-    /// Hard time budget (unix seconds); `None` = no deadline.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deadline: Option<u64>,
+    /// Cross-cutting context: tracing + deadline + budget (plan §6).
+    #[serde(default, skip_serializing_if = "Context::is_empty")]
+    pub context: Context,
     /// Authorization grant for the invocation (plan §8).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<Grant>,
@@ -74,7 +127,7 @@ pub struct EnvelopePayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<ErrorInfo>,
     /// Opaque, domain-specific payload — never interpreted by the framework.
-    #[serde(default)]
+    #[serde(default, with = "serde_bytes")]
     pub body: Vec<u8>,
     #[serde(default)]
     pub ext: BTreeMap<String, String>,
@@ -90,7 +143,7 @@ impl EnvelopePayload {
             capability: None,
             correlation,
             content_type: None,
-            deadline: None,
+            context: Context::default(),
             auth: None,
             stream_seq: None,
             stream_end: false,
@@ -149,7 +202,12 @@ impl EnvelopePayload {
     }
 
     pub fn with_deadline(mut self, deadline: u64) -> Self {
-        self.deadline = Some(deadline);
+        self.context.deadline = Some(deadline);
+        self
+    }
+
+    pub fn with_context(mut self, context: Context) -> Self {
+        self.context = context;
         self
     }
 
@@ -174,14 +232,16 @@ impl EnvelopePayload {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SignedEnvelope {
     pub payload: EnvelopePayload,
+    #[serde(with = "serde_bytes")]
     pub signer_pub: Vec<u8>,
+    #[serde(with = "serde_bytes")]
     pub signature: Vec<u8>,
 }
 
 impl SignedEnvelope {
     /// Has this envelope's deadline passed at `now`?
     pub fn is_expired(&self, now: u64) -> bool {
-        self.payload.deadline.is_some_and(|d| now > d)
+        self.payload.context.deadline_passed(now)
     }
 
     /// Fast per-message check for an already-authenticated channel: the sender

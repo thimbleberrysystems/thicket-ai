@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 serde.workspace = true
+serde_bytes.workspace = true
 serde_json.workspace = true
 ciborium.workspace = true
 sha2.workspace = true
@@ -18,3 +19,6 @@ ed25519-dalek.workspace = true
 rand.workspace = true
 hex.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+ciborium.workspace = true

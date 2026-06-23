@@ -23,7 +23,7 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
 /// Produce the canonical bytes to be signed for `payload` under `domain`.
 ///
 /// Layout: `domain_utf8 || 0x00 || cbor(payload)`.
-pub fn signing_bytes<T: Serialize>(domain: &str, payload: &T) -> Result<Vec<u8>> {
+pub fn signing_bytes<T: ?Sized + Serialize>(domain: &str, payload: &T) -> Result<Vec<u8>> {
     let mut buf = Vec::with_capacity(64);
     buf.extend_from_slice(domain.as_bytes());
     buf.push(0u8);
