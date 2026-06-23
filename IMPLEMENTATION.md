@@ -93,24 +93,48 @@ The three buckets map to the three roles: **`fibers/`** serves one capability ·
 Definition of done for a phase = its deliverables exist **and** its listed tests
 pass in CI.
 
+**Tests gate every step, not just every phase.** Within a phase we build and test
+**module by module** — the conformance vectors let each crypto/encoding module be
+validated on its own before anything is wired together. **CI grows with the
+phases:** Rust `fmt · clippy · test` (today) → `+ pytest + conformance suite +
+Rust↔Python interop` (Phase 2) → `+ Ollama integration job` (Phase 4).
+
 ---
 
 ## 5. Phases
 
 ### Phase 0 — Core touch-ups (Rust)
-The only changes to the existing core.
+The only changes to the existing core. **Lead with the canonical encoding** — it
+bakes into the Phase 1 vectors, so it must be right *before* vectors exist.
 
-**Deliverables**
-- Add the **context block** to the envelope: `trace_id`, `span_id`,
-  `parent_span_id`, `deadline` (exists), `budget`; define propagation +
-  attenuation rules (child gets a tightened deadline / debited budget).
-- **Rename** `resource`/`client` → `fiber` and `kind: agent` → `kind: weave`
-  across `plan.md`, `README.md`, and core doc comments.
+**0a — Pin the canonical signing encoding** *(changes the signed bytes)*
+- Switch all byte fields — `Id`, public keys, signatures, nonces, `correlation`,
+  envelope **`body`** — to CBOR **byte strings** (currently arrays-of-int:
+  ~2× bloat + a cross-language trap, since other CBOR libs default to byte
+  strings).
+- Take floats **out of the signed canonical form**: keep `capability.envelope` /
+  `record.profile` numeric metadata unsigned (CBOR float canonicalization —
+  shortest-float / NaN / −0 — is not reliably reproducible across languages).
+- Pin **enum string reprs** and **struct field order** in the eventual spec (or
+  adopt sorted-key canonical CBOR) so a reorder can't silently break signatures.
+
+**0b — Context block on the envelope**
+- Add `trace_id`, `span_id`, `parent_span_id`, `budget` (`deadline` exists);
+  define propagation + attenuation (child gets a tightened deadline / debited
+  budget). Optional fields, part of the signed payload.
+
+**0c — Rename**
+- `resource`/`client` → `fiber` and `kind: agent` → `kind: weave` across
+  `plan.md`, `README.md`, and core doc comments (non-functional).
 
 **Tests**
-- All existing 58 tests still pass (rename is non-functional).
-- New: envelope round-trips carrying a context block; context survives
-  sign/verify; deadline/budget propagation helper unit-tested (child ≤ parent).
+- All existing 58 tests still pass.
+- **Encoding (golden):** a fixed record/envelope/grant encodes to exact expected
+  bytes; byte fields assert as CBOR byte strings (major type 2); CBOR↔JSON
+  round-trip still verifies; size shrinks vs. the array-of-int form.
+- **Context block:** survives sign/verify and round-trips; deadline/budget
+  propagation helper (child ≤ parent) unit-tested.
+- Rename leaves the suite green (non-functional).
 
 ---
 
@@ -248,14 +272,14 @@ Observability and breadth.
 ## 6. Sequencing
 
 ```
-Phase 0  core touch-ups (context block + rename)
+Phase 0  core touch-ups (canonical encoding + context block + rename)
    │
 Phase 1  spec + conformance vectors  ──┐
    │                                   │ (vectors are the contract)
 Phase 2  Python SDK  ◀─────────────────┘   (validated against vectors + interop)
    │
-Phase 3  Wave 1  CLI + Mock LLM
-Phase 4  Wave 2  Claude LLM + Memory
+Phase 3  Wave 1  CLI + LLM fiber (stubbed model)
+Phase 4  Wave 2  real LLM (Ollama) + Memory
 Phase 5  Wave 3  Tool + first Weave
 Phase 6  Wave 4  Collector + profiler, Trigger, Router
 ```
@@ -285,7 +309,7 @@ blockers.
 ## 8. Choices made at their phase (not blockers now)
 
 - **Collector flavor** — OTLP export vs. Thicket-native (Phase 6).
-- **Wave 1 scope** — minimal (CLI + Mock LLM) vs. pull Memory in (Phase 3).
+- **Wave 1 scope** — minimal (CLI + stubbed LLM) vs. pull Memory in (Phase 3).
 - **Python crypto/CBOR/Noise libraries** — chosen in Phase 2 (must match the
   vectors exactly).
 
