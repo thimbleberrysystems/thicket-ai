@@ -1,0 +1,16 @@
+[project]
+name = "thicket"
+version = "0.1.0"
+description = "Thicket Python SDK — an independent implementation of the wire protocol"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+dependencies = ["cryptography>=40"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["thicket*"]
