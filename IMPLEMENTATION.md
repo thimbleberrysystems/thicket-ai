@@ -248,14 +248,28 @@ passes the vectors and the interop test.
 
 ---
 
-## 7. Open decisions (settle as we reach them)
+## 7. Deliberately *not* framework decisions
 
-1. **Weave internals** — how a weave expresses its wiring: hardcoded control loop
-   vs. a declarative recipe vs. the LLM driving it via tool-calls. *Decided before
-   Phase 5.*
-2. **LLM capability schema** — the `generate` request/response shape (messages +
-   params → text/stream). *Decided in Phase 3.*
-3. **Collector flavor** — OTLP export vs. Thicket-native. *Decided in Phase 6.*
-4. **Wave 1 scope** — keep minimal (CLI + Mock LLM) or pull Memory into Wave 1.
-5. **Python crypto/CBOR/Noise libraries** — chosen in Phase 2 (must match vectors
-   exactly).
+These are per-fiber / per-weave implementation freedoms, **not** things the
+framework or this plan must settle up front. Listed so we don't mistake them for
+blockers.
+
+- **Weave internals are free.** How a weave orchestrates — hardcoded loop,
+  declarative recipe, LLM-driven via tool-calls, or a mix — is each weave's own
+  choice and may differ per weave. The framework requires only that a weave honor
+  the cross-cutting contract: **attenuate grants** to the fibers it calls and
+  **propagate the context block**. The SDK provides those primitives; the rest is
+  the weave's business. We pick a style *per example weave* when we build it; it
+  constrains nothing else.
+- **LLM capability schema** is a *convention among model fibers* (so mock and real
+  are drop-in), chosen when we build the first model fiber (Phase 3) and
+  refinable. Not a framework mandate.
+
+## 8. Choices made at their phase (not blockers now)
+
+- **Collector flavor** — OTLP export vs. Thicket-native (Phase 6).
+- **Wave 1 scope** — minimal (CLI + Mock LLM) vs. pull Memory in (Phase 3).
+- **Python crypto/CBOR/Noise libraries** — chosen in Phase 2 (must match the
+  vectors exactly).
+
+Phases 0–2 (core touch-ups → spec+vectors → SDK) are unblocked and can start now.
