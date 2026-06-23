@@ -4,8 +4,10 @@ Shares no code with the Rust core; conformance is proven against
 ``spec/vectors/``.
 """
 
-from . import cbor, crypto, envelope, grant, record
+from . import cbor, crypto, envelope, grant, identity, record, secure
+from .conn import Conn
 from .crypto import RootKey, WorkingKey, sha256, signing_input, verify_sig
+from .identity import LocalIdentity, unix_now
 from .record import (
     build_record_payload,
     capability,
@@ -20,7 +22,12 @@ __all__ = [
     "crypto",
     "envelope",
     "grant",
+    "identity",
     "record",
+    "secure",
+    "Conn",
+    "LocalIdentity",
+    "unix_now",
     "RootKey",
     "WorkingKey",
     "sha256",
