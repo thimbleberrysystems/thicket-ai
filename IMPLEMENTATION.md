@@ -50,7 +50,8 @@ sdk/
   py/                  # the Python SDK (independent wire-protocol impl)
 fibers/
   py/                  # leaf fibers — single responsibility
-    mock_llm/  llm_claude/  memory/  tool_http/  collector/  trigger/  router/
+    llm/                 # one fiber, pluggable backends: fake / ollama / claude
+    memory/  tool_http/  collector/  trigger/  router/
 weaves/
   py/                  # weaves — compositions (each is also a fiber on the wire)
     inbox_summarizer/
@@ -72,8 +73,16 @@ The three buckets map to the three roles: **`fibers/`** serves one capability ·
 - **Cross-impl interop is the headline test.** A Python fiber registering with and
   invoking through the Rust core over real TCP+Noise is the proof of
   language-agnosticism. CI runs it.
-- **Mock all external services.** No real LLM API calls in tests — the Anthropic
-  client is mocked; we test wiring and schema, not the model.
+- **No paid API keys in tests.** The LLM fiber has a **pluggable backend**
+  (`FakeBackend` / `OllamaBackend` / `ClaudeBackend`). Two tiers:
+  - *fast/deterministic* — `FakeBackend`, the bulk of tests, exact assertions;
+  - *integration/smoke* — `OllamaBackend` (real local inference, **no key**),
+    a few tests asserting **structure, not content** (non-empty completion, ≥1
+    streamed token, schema-conformant, errors handled).
+  A session-scoped fixture ensures Ollama + a tiny model (e.g. `qwen2.5:0.5b`),
+  starts the server, and **skips gracefully** if Ollama is absent. CI installs
+  Ollama in a **dedicated integration job** and caches `~/.ollama/models`; the
+  fast `fmt · clippy · unit` gate stays separate.
 - **Subprocess integration harness.** Integration tests boot a Rust core
   directory + Python fibers as subprocesses and drive them end to end.
 - **CI gate** (extends the existing `fmt · clippy · test`): add `pytest`, the
@@ -151,35 +160,41 @@ Independent re-implementation of the wire protocol; tracing built in.
 
 ---
 
-### Phase 3 — Wave 1: CLI app + Mock LLM fiber
+### Phase 3 — Wave 1: CLI app + LLM fiber (`FakeBackend`)
 First end-to-end across languages and processes.
 
 **Deliverables**
-- `fibers/py/mock_llm/` — `kind: model`; registers, serves `generate`
-  (templated, streamed tokens), renews its lease.
+- `fibers/py/llm/` — `kind: model`; registers, serves `generate` (streamed
+  tokens), renews its lease. Pluggable backend; Wave 1 ships the deterministic
+  **`FakeBackend`** (the "mock" — same capability schema the real backends use).
 - `apps/py/cli/` — consumer: search → resolve → connect → call/stream.
 
 **Tests**
-- Integration (subprocess): Rust directory + Python mock-LLM + CLI → discover,
-  invoke, stream; assert streamed tokens.
+- Integration (subprocess): Rust directory + Python LLM fiber (FakeBackend) + CLI
+  → discover, invoke, stream; assert streamed tokens (deterministic).
 - Grant-gated invocation: call without a grant → `Unauthorized`; with a valid
   grant → response.
-- Mock LLM unit tests (deterministic output).
+- LLM fiber unit tests over `FakeBackend` (deterministic output + schema).
 
 ---
 
-### Phase 4 — Wave 2: Claude LLM fiber + Memory fiber
-Real capability + state.
+### Phase 4 — Wave 2: real LLM backends + Memory fiber
+Real inference + state.
 
 **Deliverables**
-- `fibers/py/llm_claude/` — `kind: model`, backed by Claude (latest Opus);
-  **same capability schema as the mock** (drop-in).
+- `fibers/py/llm/` — add **`OllamaBackend`** (default for dev/test, real local
+  inference, **no key**) and **`ClaudeBackend`** (optional production). Same fiber
+  and capability schema as Wave 1 — only the backend differs.
 - `fibers/py/memory/` — `kind: memory`; `append` / `materialize` / `retrieve`
   keyed by a session reference (pass-by-reference context).
 
 **Tests**
-- Claude fiber: Anthropic client **mocked** — assert request shaping + response
-  mapping; no live API call.
+- LLM integration (Ollama, **no key**): a tiny model answers through the fiber;
+  assert **structure not content** — non-empty completion, ≥1 streamed token,
+  schema-conformant, errors handled. Fixture bootstraps Ollama + model, skips if
+  absent.
+- `ClaudeBackend`: client mocked — assert request shaping + response mapping; no
+  live API call.
 - Memory fiber: append→retrieve→materialize correctness; pass-by-reference
   (caller passes a session ref, not history).
 - Integration: a consumer drives a stateful multi-turn exchange using memory +
