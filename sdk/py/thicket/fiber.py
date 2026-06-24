@@ -18,6 +18,7 @@ async def run_fiber(
     capabilities: list,
     handler,
     host: str = "127.0.0.1",
+    profile=None,
     ready=None,
 ):
     server = await serve(host, 0, local, handler)
@@ -25,7 +26,11 @@ async def run_fiber(
     endpoint = f"{bound[0]}:{bound[1]}"
 
     rec = record.self_record(
-        local, kind=kind, capabilities=capabilities, locators=[record.locator("tcp", endpoint)]
+        local,
+        kind=kind,
+        capabilities=capabilities,
+        locators=[record.locator("tcp", endpoint)],
+        profile=profile,
     )
     dc = await DirectoryClient.connect(dir_host, dir_port, local, dir_id)
     await dc.register(rec)
@@ -34,5 +39,9 @@ async def run_fiber(
     if ready is not None:
         ready.set_result({"id": local.id, "endpoint": endpoint})
 
-    async with server:
+    # Note: close() (not wait_closed()) on teardown — a long-lived handler (e.g. a
+    # trigger subscription parked on its event queue) must not block shutdown.
+    try:
         await server.serve_forever()
+    finally:
+        server.close()
