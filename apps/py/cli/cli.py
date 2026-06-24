@@ -8,7 +8,7 @@ import asyncio
 from thicket import Conn, DirectoryClient
 
 
-async def generate(dir_host, dir_port, dir_id, local, query: str, *, auth=None) -> str:
+async def generate(dir_host, dir_port, dir_id, local, query: str, *, auth=None, timeout=30.0) -> str:
     """Search → resolve → connect → stream. Returns the joined token text."""
     dc = await DirectoryClient.connect(dir_host, dir_port, local, dir_id)
     results = await dc.search(query, kind="model", top_k=5)
@@ -23,7 +23,7 @@ async def generate(dir_host, dir_port, dir_id, local, query: str, *, auth=None) 
     conn = await Conn.connect(host, int(port), local, expected_id=fiber_id)
     try:
         tokens = []
-        async for chunk in conn.call_stream("generate", query.encode("utf-8"), auth=auth):
+        async for chunk in conn.call_stream("generate", query.encode("utf-8"), auth=auth, timeout=timeout):
             tokens.append(chunk.get("body", b"").decode("utf-8", "replace"))
         return "".join(tokens)
     finally:

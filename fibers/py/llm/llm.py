@@ -11,12 +11,28 @@ from __future__ import annotations
 
 import asyncio
 
-from thicket import DirectoryClient, grant, record, serve, unix_now
+from thicket import grant, record, unix_now
+from thicket.fiber import run_fiber
 
 
 def stub_model(prompt: str):
     """Deterministic 'tokens' for a prompt (Wave 1 placeholder)."""
     return ["echo: ", prompt, " [done]"]
+
+
+def ollama_model(prompt: str, *, model="qwen2.5:0.5b", host="http://127.0.0.1:11434", timeout=120):
+    """Wave 2: real inference via a local Ollama model. Returns one chunk (the
+    full completion). What the fiber wraps is the author's choice — Thicket is
+    indifferent; the capability schema is unchanged."""
+    import json
+    import urllib.request
+
+    data = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode("utf-8")
+    req = urllib.request.Request(
+        f"{host}/api/generate", data=data, headers={"Content-Type": "application/json"}
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return [json.loads(r.read().decode("utf-8"))["response"]]
 
 
 def make_handler(local, *, model=stub_model, require_grant: bool = False):
@@ -38,7 +54,7 @@ def make_handler(local, *, model=stub_model, require_grant: bool = False):
                 await conn.respond_error(payload, "Unauthorized", "valid grant required")
                 return
         prompt = payload.get("body", b"").decode("utf-8", "replace")
-        tokens = model(prompt)
+        tokens = await asyncio.to_thread(model, prompt)  # model call may block (e.g. HTTP)
         for i, tok in enumerate(tokens):
             await conn.stream_chunk(payload, i, i == len(tokens) - 1, tok.encode("utf-8"))
 
@@ -47,25 +63,17 @@ def make_handler(local, *, model=stub_model, require_grant: bool = False):
 
 async def run(local, dir_host, dir_port, dir_id, *, host="127.0.0.1", model=stub_model, require_grant=False, ready=None):
     """Serve `generate`, register with the directory, then serve forever."""
-    server = await serve(host, 0, local, make_handler(local, model=model, require_grant=require_grant))
-    bound = server.sockets[0].getsockname()
-    endpoint = f"{bound[0]}:{bound[1]}"
-
-    rec = record.self_record(
+    await run_fiber(
         local,
+        dir_host,
+        dir_port,
+        dir_id,
         kind="model",
         capabilities=[record.capability("model", "text generation", tags=["chat"])],
-        locators=[record.locator("tcp", endpoint)],
+        handler=make_handler(local, model=model, require_grant=require_grant),
+        host=host,
+        ready=ready,
     )
-    dc = await DirectoryClient.connect(dir_host, dir_port, local, dir_id)
-    await dc.register(rec)
-    await dc.close()
-
-    if ready is not None:
-        ready.set_result({"id": local.id, "endpoint": endpoint})
-
-    async with server:
-        await server.serve_forever()
 
 
 if __name__ == "__main__":
