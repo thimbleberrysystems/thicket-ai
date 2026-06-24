@@ -179,6 +179,31 @@ class Wave4Net(unittest.TestCase):
             proc.wait()
             proc.stdout.close()
 
+    def test_profiler_profile_fetches_and_summarizes(self):
+        proc, dir_id, host, port = self._directory()
+        try:
+
+            async def scenario():
+                _, ctask, cinfo = await _serve(collector_mod.run, dir_id, host, port)
+                reporter = LocalIdentity.from_root(RootKey.generate())
+                ch, cp = cinfo["endpoint"].split(":")
+                cc = await collector_mod.CollectorClient.connect(ch, int(cp), reporter, cinfo["id"])
+                for span in SPANS:
+                    await cc.report(span)
+                summary = await profiler_mod.profile(cc, T)  # the async path, previously untested
+                await cc.close()
+                await _stop(ctask)
+                return summary
+
+            s = asyncio.run(asyncio.wait_for(scenario(), 30))
+            self.assertEqual(s["per_fiber"]["tool:calc.add"]["latency_ms"], 10)
+            self.assertEqual(s["total_cost_micros"], 1500)
+            self.assertIn("weave:describe_sum", s["tree"])
+        finally:
+            proc.kill()
+            proc.wait()
+            proc.stdout.close()
+
     def test_router_selects_expected_fiber(self):
         proc, dir_id, host, port = self._directory()
         try:

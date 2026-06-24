@@ -45,3 +45,23 @@ async def run_fiber(
         await server.serve_forever()
     finally:
         server.close()
+
+
+def run_main(run, **kwargs):
+    """Standalone CLI entry for a fiber module:
+
+        python <fiber>.py <dir_host> <dir_port> <dir_id_hex>
+
+    Generates a fresh identity and serves the fiber's ``run`` against the given
+    directory until killed. Lets every fiber be launched as its own process."""
+    import asyncio
+    import sys
+
+    from .crypto import RootKey
+    from .identity import LocalIdentity
+
+    if len(sys.argv) < 4:
+        sys.exit(f"usage: python {sys.argv[0]} <dir_host> <dir_port> <dir_id_hex>")
+    dir_host, dir_port, dir_id_hex = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+    ident = LocalIdentity.from_root(RootKey.generate())
+    asyncio.run(run(ident, dir_host, dir_port, bytes.fromhex(dir_id_hex), **kwargs))

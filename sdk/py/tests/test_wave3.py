@@ -308,6 +308,55 @@ class Wave3Contract(unittest.TestCase):
             proc.wait()
             proc.stdout.close()
 
+    def test_weave_errors_cleanly_on_missing_dependency(self):
+        # weave is up but no tool/llm are registered — it must return a clean
+        # error envelope, not crash the handler / drop the connection.
+        proc, dir_id, host, port = self._directory()
+        try:
+
+            async def scenario():
+                _, wtask, winfo = await _serve3(weave_mod.run, dir_id, host, port)
+                consumer = LocalIdentity.from_root(RootKey.generate())
+                wh, wp = winfo["endpoint"].split(":")
+                conn = await Conn.connect(wh, int(wp), consumer, expected_id=winfo["id"])
+                resp = await conn.call("describe_sum", cbor.encode({"a": 2, "b": 3}), timeout=10)
+                await conn.close()
+                await _stop(wtask)
+                return resp["payload"]
+
+            p = asyncio.run(asyncio.wait_for(scenario(), 30))
+            self.assertEqual(p.get("typ"), "Error")
+            self.assertEqual(p["error"]["code"], "Unavailable")
+        finally:
+            proc.kill()
+            proc.wait()
+            proc.stdout.close()
+
+    def test_weave_enforces_budget(self):
+        proc, dir_id, host, port = self._directory()
+        try:
+
+            async def scenario():
+                _, wtask, winfo = await _serve3(weave_mod.run, dir_id, host, port)
+                consumer = LocalIdentity.from_root(RootKey.generate())
+                wh, wp = winfo["endpoint"].split(":")
+                conn = await Conn.connect(wh, int(wp), consumer, expected_id=winfo["id"])
+                resp = await conn.call(
+                    "describe_sum", cbor.encode({"a": 2, "b": 3}),
+                    context={"trace_id": b"b", "span_id": b"s", "budget": 0}, timeout=10,
+                )
+                await conn.close()
+                await _stop(wtask)
+                return resp["payload"]
+
+            p = asyncio.run(asyncio.wait_for(scenario(), 30))
+            self.assertEqual(p.get("typ"), "Error")
+            self.assertEqual(p["error"]["code"], "BudgetExhausted")
+        finally:
+            proc.kill()
+            proc.wait()
+            proc.stdout.close()
+
     def test_deadline_is_enforced_across_the_tree(self):
         proc, dir_id, host, port = self._directory()
         try:

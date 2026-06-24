@@ -1,0 +1,4 @@
+# Runtime dependencies for the Thicket Python SDK.
+# Install:  pip install -r requirements.txt
+cryptography>=40
+noiseprotocol>=0.3.1

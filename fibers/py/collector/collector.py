@@ -94,3 +94,9 @@ class CollectorClient:
 
     async def close(self) -> None:
         await self.conn.close()
+
+
+if __name__ == "__main__":
+    from thicket.fiber import run_main
+
+    run_main(run)

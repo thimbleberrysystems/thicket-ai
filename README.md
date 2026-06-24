@@ -203,9 +203,12 @@ cargo test --workspace
 # 2. Start a directory — the phone book. It prints "<id_hex> <addr>".
 cargo run -p thicket-directory --example directory_server
 
-# 3. Run the Python SDK's interop + integration tests against it
-cd sdk/py && pip install cryptography noiseprotocol
+# 3. Install the SDK + test deps and run the full suite
+cd sdk/py && pip install -r requirements-dev.txt
 PYTHONPATH=. python -m unittest discover -s tests
+
+# 4. …or watch it end to end: a tool fiber + an LLM fiber woven together
+python ../../apps/py/demo/run_demo.py
 ```
 
 Architecture, threat model, and the full protocol spec live in

@@ -72,9 +72,16 @@ def make_handler(local, dir_host, dir_port, dir_id, *, tool_grant=None, sink=Non
                 return
 
             dc = await DirectoryClient.connect(dir_host, dir_port, local, dir_id)
-            tool_id, th, tp = await _discover(dc, "tool", "addition")
-            llm_id, lh, lp = await _discover(dc, "model", "text generation")
-            await dc.close()
+            try:
+                tool_id, th, tp = await _discover(dc, "tool", "addition")
+                llm_id, lh, lp = await _discover(dc, "model", "text generation")
+            except RuntimeError as e:
+                # a weave is incomplete without its fibers — fail with a clean
+                # error envelope, never a dropped connection.
+                await conn.respond_error(payload, "Unavailable", str(e))
+                return
+            finally:
+                await dc.close()
 
             # 1. tool: add — child context (debit budget) + attenuated grant
             tool_ctx = tracing.child_context(weave_ctx, span_id=os.urandom(8), spent=TOOL_COST)
@@ -139,3 +146,9 @@ async def run(local, dir_host, dir_port, dir_id, *, host="127.0.0.1", tool_grant
         )
     finally:
         await emitter.close()
+
+
+if __name__ == "__main__":
+    from thicket.fiber import run_main
+
+    run_main(run)

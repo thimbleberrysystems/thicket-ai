@@ -45,9 +45,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install SDK deps
-        run: python -m pip install "cryptography>=40" noiseprotocol
+      - name: Install SDK + test deps
+        run: python -m pip install -r sdk/py/requirements-dev.txt
       - name: Build interop server examples
         run: cargo build --workspace --examples
-      - name: Conformance + interop
-        run: cd sdk/py && PYTHONPATH=. python -m unittest discover -s tests -v
+      - name: Conformance + interop (under coverage)
+        run: |
+          cd sdk/py
+          PYTHONPATH=. python -m coverage run --branch -m unittest discover -s tests -v
+      - name: Coverage report + floor
+        run: |
+          cd sdk/py
+          python -m coverage report -m \
+            --include="*/thicket/*,*/fibers/py/*,*/weaves/py/*,*/apps/py/*" \
+            --fail-under=85

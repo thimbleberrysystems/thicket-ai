@@ -69,3 +69,9 @@ async def run(local, dir_host, dir_port, dir_id, *, host="127.0.0.1", require_gr
         )
     finally:
         await emitter.close()
+
+
+if __name__ == "__main__":
+    from thicket.fiber import run_main
+
+    run_main(run)
