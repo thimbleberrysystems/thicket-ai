@@ -1,180 +1,249 @@
-# Thicket
+<div align="center">
+
+# 🌿 Thicket
+
+### The open network layer for AI agents
+
+**A protocol, not a framework.** Any agent, in any language, on any machine —
+discovers, authenticates, and securely calls any other. No central hub. No shared SDK.
 
 [![CI](https://github.com/thimbleberrysystems/thicket-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/thimbleberrysystems/thicket-ai/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-111%20passing-brightgreen)](#proof-not-promises)
+[![Rust](https://img.shields.io/badge/core-Rust-orange)](crates/)
+[![Python SDK](https://img.shields.io/badge/SDK-Python-blue)](sdk/py/)
+[![License](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
-**A federated, language-agnostic substrate for machine-to-machine collaboration.**
-
-Thicket is a DNS-plus-dial-tone for a machine-only network. Heterogeneous
-resources — LLMs, memories, CI/CD triggers, tools, agents, *any* machine —
-publish **self-certifying, signed records of what they can do**, discover each
-other by **identity** or by **semantic need**, and then **talk peer-to-peer**
-over a universal, authenticated channel.
-
-The framework standardizes *how to find and how to connect* — never *what is
-said*. It is built to be **evolvable** (a tiny permanent kernel; everything else
-versioned and negotiated) and to survive an **adversarial, open** network
-(Sybil resistance, capability-scoped authorization, and key revocation are
-first-class, not afterthoughts).
-
-> Design rationale, threat model, and the full protocol specification live in
-> [`plan.md`](plan.md). This README is the implementation guide.
+</div>
 
 ---
 
-## Two pillars
+## Agents shouldn't be islands
 
-1. **Directory — find each other.** Resources publish capability records; anyone
-   resolves them by id or searches them by natural-language need.
-2. **Interconnect — talk to each other.** Once found, any resource opens a
-   mutually-authenticated channel to any other and invokes its advertised
-   capabilities, gated by capability grants.
+Every agent framework today — LangChain, CrewAI, AutoGen — makes you rebuild your
+agents inside *their* abstractions, in *one* language, in *one* process, brokered
+by *one* central app. The result is a million agents that can't find, trust, or
+call each other.
 
-The **Resource Record** joins the two: it hands a caller everything needed to
-talk — `id` (who), `locator` (where), `io` schema (how), and `public_key`
-(to secure the channel). Like the internet, **the registry is the phone book,
-not the switchboard**: you look a resource up, then the conversation goes
-directly peer-to-peer.
+The web had the same problem in 1991. It was solved not by a framework, but by
+**protocols** — DNS to find, TLS to trust, HTTP to talk — that nobody owns and
+anyone can implement.
 
-`kind: agent` is just one value in an open set — agents are neither privileged
-nor excluded. An "agent" is an emergent composition of discovered resources, not
-a special node type.
+**Thicket is that layer for AI agents.** A federated, language-agnostic,
+end-to-end-encrypted substrate where heterogeneous participants publish
+**self-certifying records of what they can do**, find each other by **identity or
+semantic need**, and talk **peer-to-peer** — gated by attenuable capability
+grants, observable by design, owned by no one.
+
+> Like the internet, **the registry is the phone book, not the switchboard.** You
+> look someone up, then the conversation goes directly, encrypted, peer-to-peer.
 
 ---
 
-## Architecture
+## The 30-second proof
 
-```
-                 ┌──────────────────────────────────────────────┐
-                 │                 DIRECTORY                     │
-   register ───▶ │  thicket-registry  ──gossip──  federation     │
-   resolve  ───▶ │   (filter→recall→rerank)     (selection +     │
-   search   ───▶ │                               scatter-gather) │
-                 └───────────────────┬──────────────────────────┘
-                       signed records │ (id, locators, capabilities)
-                 ┌───────────────────▼──────────────────────────┐
-                 │                INTERCONNECT                    │
-   connect  ───▶ │  thicket-net (framing, handshake, sessions)   │
-   invoke   ───▶ │  thicket-interconnect (envelope, grants)      │
-                 └───────────────────┬──────────────────────────┘
-                                     │ verifies against
-                 ┌───────────────────▼──────────────────────────┐
-                 │         KERNEL — thicket-core                  │
-                 │  self-certifying identity (root→working keys, │
-                 │  rotation, revocation), signed records,        │
-                 │  capability descriptors, canonical signing     │
-                 └────────────────────────────────────────────────┘
-                          thicket-trust — reputation & Sybil resistance
+Thicket's core is **Rust**. Its first SDK is **Python**. They share **zero code** —
+the only contract between them is a wire spec and a set of byte-exact conformance
+vectors. That's not a slogan; it's a test:
+
+```text
+$ python -m unittest tests.test_conformance
+  ✓ the Python SDK reproduces the Rust core's signed bytes EXACTLY
+    (record, envelope, grant — byte-for-byte, signature-for-signature)
 ```
 
-### Crates
-
-| Crate | Plan | Responsibility |
-|---|---|---|
-| [`thicket-core`](crates/thicket-core) | §2, §3, §7 | Self-certifying identity (`id = sha256(root_key)`), the root→working key chain with rotation & revocation, signed `ResourceRecord`s, capability descriptors, and the canonical signing rule. The permanent kernel. |
-| [`thicket-registry`](crates/thicket-registry) | §4, §10, §12 | A single registry: `register` / `resolve` / semantic `search` (filter → recall → rerank) over a pluggable `Embedder`, with `visibility` and lease enforcement. |
-| [`thicket-interconnect`](crates/thicket-interconnect) | §6, §8 | The universal signed `Envelope`, attenuable capability `Grant`s (authorization), and the authentication handshake primitives. |
-| [`thicket-trust`](crates/thicket-trust) | §9 | Signed attestations, Sybil-resistant reputation aggregation, and cold-start-aware ranking. |
-| [`thicket-federation`](crates/thicket-federation) | §5 | Federated discovery: catalog profiles, collection selection, scatter-gather with per-record verification, global rerank, and a TTL resolve cache. Closed membership doubles as a private federation. |
-| [`thicket-net`](crates/thicket-net) | §6 | The networking spine: an **encrypted** channel (Noise `XX_25519_ChaChaPoly_SHA256`, identity-bound via Ed25519), framing, request/response + streaming sessions, pub/sub events, per-message key freshness, and a reusable `Server` accept/dispatch abstraction — over any `AsyncRead + AsyncWrite` (in-memory or TCP). |
-| [`thicket-directory`](crates/thicket-directory) | §14 | The directory plane over the wire: a registry served as a Thicket resource (`register` / `resolve` / `search` / `renew` / `deregister`) with a typed client. Mutations are gated by the channel identity. |
-
-Dependency direction: everything depends on `thicket-core`; `net` builds on
-`interconnect`; `federation` builds on `registry`. Nothing depends on a specific
-resource implementation — those are clients.
-
----
-
-## Core concepts
-
-- **Identity is a key.** `id = sha256(root_public_key)` — permanent and
-  machine-native, no naming authority. The cold-stored **root key** endorses
-  short-lived **working keys** that do day-to-day signing, so keys can rotate and
-  be revoked without the identity ever changing.
-- **Records are signed and self-verifying.** Any registry — even an untrusted
-  one — can serve a cached copy; a poisoned copy fails signature verification.
-- **Discovery is capability-first.** With no human-readable names, *search by
-  need* (semantic) is the front door; *resolve by id* is the fast path.
-- **Authorization is an attenuable grant.** A grant authorizes a holder to invoke
-  specific capabilities, with caveats; a holder can delegate a strictly
-  **narrower** sub-grant but never a wider one. This monotonic-narrowing
-  invariant is the safety primitive for agents spawning agents.
-- **Evolvable by explicit versioning.** A tiny permanent kernel; everything else
-  is versioned, self-describing, and negotiated — flexibility via explicit
-  negotiation, not lax parsing.
-
----
-
-## Build & test
-
-Requires a recent stable Rust toolchain.
+So a fiber written in Python is indistinguishable on the wire from one written in
+Rust. Here's one being **invoked across languages**, mutually authenticated over
+Noise + Ed25519, with no gateway in between:
 
 ```bash
-cargo build --workspace          # build everything
-cargo test  --workspace          # run all tests
-cargo test -p thicket-core       # test a single crate
+# A capability, written in Python, serving on the network…
+$ python weather_fiber.py
+listening as 9f2c… on 127.0.0.1:51820
+
+# …invoked from a Rust process. Different language. Same wire. Direct + encrypted.
+$ cargo run --example rust_caller -- 9f2c… 127.0.0.1:51820 weather "Lisbon"
+OK
+Lisbon: 22°C, clear
 ```
 
-The same gate that CI enforces (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml))
-can be run locally:
+This is the whole thesis in one command: **a protocol, not a framework.**
+
+---
+
+## Write a fiber in ~15 lines
+
+A **Fiber** is any participant on the Thicket: one identity, one job, one signed
+record of what it can do. Here's a complete one.
+
+```python
+import asyncio
+from thicket import LocalIdentity, RootKey, record
+from thicket.fiber import run_fiber
+
+async def handle(conn, req):
+    city = req["body"].decode()
+    await conn.respond(req, f"{city}: 22°C, clear".encode())
+
+async def main():
+    me = LocalIdentity.from_root(RootKey.generate())   # self-certifying: id = hash(pubkey)
+    await run_fiber(
+        me, DIR_HOST, DIR_PORT, DIR_ID,                # register with a directory
+        kind="tool",
+        capabilities=[record.capability("tool", "current weather", tags=["weather"])],
+        handler=handle,                                # serve, peer-to-peer, encrypted
+    )
+
+asyncio.run(main())
+```
+
+Discovering and calling it from anywhere:
+
+```python
+dc = await DirectoryClient.connect(DIR_HOST, DIR_PORT, me, DIR_ID)
+hit = (await dc.search("what's the weather?", kind="tool"))[0]["payload"]   # semantic discovery
+host, port = hit["locators"][0]["endpoint"].split(":")
+
+conn = await Conn.connect(host, int(port), me, expected_id=hit["id"])       # pins identity
+print((await conn.call("weather", b"Lisbon"))["payload"]["body"].decode())
+```
+
+No framework to adopt. No base class to inherit. Just an identity and a wire.
+
+---
+
+## How is this different?
+
+|                       | Agent frameworks<br/>(LangChain, CrewAI) | MCP | A2A | **Thicket** |
+|-----------------------|:---:|:---:|:---:|:---:|
+| **Primary unit**      | a Python app | a tool server | an agent endpoint | **any networked participant** |
+| **Languages**         | one (Python) | SDK-bound | HTTP | **any — wire spec + vectors** |
+| **Topology**          | in-process | client→server | mostly hub / enterprise | **decentralized, federated** |
+| **Identity & trust**  | none | host trust | enterprise auth | **self-certifying keys** |
+| **Authorization**     | — | — | coarse | **attenuable capability grants** |
+| **Composition**       | hardcoded | per client | per agent | **weaves (compose & nest)** |
+| **Observability**     | bolt-on | — | — | **self-reported, encryption-safe** |
+
+Thicket isn't here to replace your framework or your MCP servers — **wrap them in a
+fiber.** Frameworks are how you build *one* agent. Thicket is how a million agents,
+built by different teams in different languages, find and trust each other.
+
+---
+
+## The vocabulary
+
+- **Thicket** — the network: the federated substrate as a whole.
+- **Fiber** — any participant. A self-certifying identity + a signed record + the
+  capabilities it serves and calls. Single-responsibility by default
+  (`kind: model | memory | tool | trigger | collector | router | …`).
+- **Weave** — a Fiber whose job is to **bind other Fibers** into a goal
+  (`kind: weave`). It **nests** — to a higher weave, a lower weave is just another
+  fiber. *Fibers weave into a thicket.*
+
+---
+
+## The hard parts, done right
+
+The distributed-systems problems that frameworks ignore are the ones Thicket
+treats as first-class:
+
+- **🔐 Self-certifying identity.** An id *is* the hash of a root public key
+  (`id = sha256(root_pubkey)`, Ed25519). No CA, no registrar, no central trust —
+  identity is math. Working keys rotate; revocation and endorsement are built in.
+- **🎟️ Capability security.** Authorization is an **attenuable grant**: a holder
+  can delegate only a *narrower* slice of authority (fewer capabilities, sooner
+  expiry), never wider. A weave hands each fiber exactly the grant it needs and not
+  one bit more — enforced cryptographically, end to end.
+- **🔒 Encrypted by construction.** Every connection is a Noise `XX` handshake
+  (`25519 / ChaChaPoly / SHA256`) with each peer's static key bound to its Ed25519
+  identity. Mutual auth and end-to-end encryption are not optional.
+- **🧬 One contract, many implementations.** The cross-language boundary is a
+  canonical CBOR wire spec plus byte-exact conformance vectors — *not* a shared
+  library. Any language that passes the vectors is a first-class citizen. (Proven:
+  the Python SDK matches the Rust core byte-for-byte.)
+- **🔭 Observability that respects encryption.** No proxy, no sniffing. Fibers
+  **self-report** their own spans, and *which* sink a trace flows to is **woven** —
+  carried in-band and chosen by the orchestrating weave. Coherent distributed
+  traces, zero man-in-the-middle.
+- **🕸️ No central hub.** Directory, collector, router — every hub-shaped thing is
+  just an *optional* fiber. Directories **federate**: discovery scatter-gathers
+  across independent directories and merges, so nothing is authoritative.
+
+---
+
+## Proof, not promises
+
+This is early, research-grade software — and unusually well-tested for its age.
+Everything below is covered by the CI gate, today:
+
+- ✅ **111 tests green** — 66 Rust + 45 Python, on every commit.
+- ✅ **Cross-language interop, both directions** — a Python client invokes a Rust
+  fiber, and a Rust client invokes a Python fiber, over real TCP + Noise.
+- ✅ **Byte-exact conformance** — the Python SDK reproduces the Rust core's signed
+  records, envelopes, and grants bit-for-bit.
+- ✅ **Decentralized discovery** — fibers registered in *different* directories are
+  both reachable through one federated lookup. No central hub.
+- ✅ **Real composition** — a weave discovers a tool + an LLM fiber, composes them,
+  attenuates a grant to each, propagates a deadline, and assembles a distributed
+  trace.
+- ✅ **Real inference, no keys** — the example model fiber answers through a local
+  model via Ollama; swapping in OpenAI / vLLM / anything is a one-line change the
+  framework never sees.
+
+---
+
+## Quickstart
 
 ```bash
-cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
+git clone https://github.com/thimbleberrysystems/thicket-ai
+cd thicket-ai
+
+# 1. Build the core + run the conformance suite (the contract)
 cargo test --workspace
+
+# 2. Start a directory — the phone book. It prints "<id_hex> <addr>".
+cargo run -p thicket-directory --example directory_server
+
+# 3. Run the Python SDK's interop + integration tests against it
+cd sdk/py && pip install cryptography noiseprotocol
+PYTHONPATH=. python -m unittest discover -s tests
 ```
 
-The framework has **no external service dependencies** for its tests: a
-deterministic `MockEmbedder` stands in for a real embedding model, and the
-network layer is exercised over both an in-memory duplex and a real loopback TCP
-socket.
+Architecture, threat model, and the full protocol spec live in
+[`plan.md`](plan.md); the build plan and phase-by-phase test gates live in
+[`IMPLEMENTATION.md`](IMPLEMENTATION.md); the cross-language contract is
+[`spec/thicket-wire.md`](spec/thicket-wire.md).
 
 ---
 
-## A guided tour of the flow
+## Why now
 
-A request like *"find something that can summarize code and call it"* maps onto
-the crates as:
+Three things just became true at once: agents are suddenly *useful*, they're
+multiplying faster than any one vendor can corral, and we're handing them real
+authority over our systems and our money. That combination has exactly one safe
+shape — **decentralized, identity-first, capability-scoped, language-agnostic** —
+and no one has built the substrate for it. The framework wars are a race to own
+the application layer. Thicket is the layer underneath: the one nobody owns, that
+lets all of them interoperate.
 
-1. **Search** — `registry.search(Need)` (or `federation.search`) embeds the
-   intent, filters by kind/tags/visibility/lease, and returns ranked signed
-   records.
-2. **Resolve** — pick a candidate; you now hold its `id`, `locators`,
-   capability `io`, and `public_key`.
-3. **Connect** — `Conn::connect(stream, local_identity, Some(expected_id))`
-   performs the mutually-authenticated handshake over TCP (or any transport),
-   verifying the peer is exactly who discovery said.
-4. **Authorize** — obtain/attenuate a `Grant` and attach it to the request
-   envelope.
-5. **Invoke** — `conn.call(request, deadline)` sends a signed `Envelope` and
-   awaits the correlated response; the server verifies the grant before acting.
-
-Streaming (`conn.call_stream`), events, errors, deadlines, and cancellation are
-all carried by the same `Envelope` frame.
+The internet didn't scale because someone built the best website. It scaled
+because of the protocols beneath every website. **Agents need theirs.**
 
 ---
 
-## Status
+## Status & roadmap
 
-Implemented as a Rust workspace with a comprehensive test suite (58 tests). The
-**behavioral protocol surface and the encrypted transport are complete**:
-identity/records, registry, interconnect (envelope + grants), trust, federation,
-the networking spine (Noise-encrypted channels, request/response, streaming,
-events, the `Server` abstraction), and the **networked directory** all work
-end-to-end over real TCP — confidential, integrity-protected, forward-secret,
-and mutually authenticated.
+Working today: identity, signing, grants, the Noise interconnect, directory +
+federation, the Python SDK, and example fibers/weaves (model, memory, tool,
+collector, trigger, router) — all cross-language tested.
 
-**Swappable substrate still to build (below the protocol surface):** a Kademlia
-DHT for resolve (referral + replication is in place) and cross-language
-conformance vectors. See [`plan.md`](plan.md) §18. These sit beneath the
-protocol surface a client sees, so they can be added without a client reshaping
-the core.
+Next: a hosted playground, SDKs in more languages (the wire spec makes this
+additive, not a rewrite), production directory federation, and a public catalog
+of fibers.
 
-Clients (LLM / memory / CI-CD / agent resources) are intentionally **out of
-scope** for the framework — they register and talk *over* Thicket. Example
-clients will follow once the core network layer is locked down.
-
----
+**Contributing & design partners:** issues and PRs welcome. If you're building
+agents that need to talk to agents you don't control, we want to hear from you —
+open an issue or reach out.
 
 ## License
 
-Apache-2.0. See [`LICENSE`](LICENSE).
+MIT — see [`LICENSE`](LICENSE). Built by [Thimbleberry Systems](https://github.com/thimbleberrysystems).
