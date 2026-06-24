@@ -52,19 +52,19 @@ class Conn:
 
     # ---- client side ----
 
-    async def call(self, capability: str, body: bytes = b"", *, auth=None, timeout: float = 10.0) -> dict:
+    async def call(self, capability: str, body: bytes = b"", *, auth=None, context=None, timeout: float = 10.0) -> dict:
         """Send a request and return the single (decoded, signed) response."""
-        payload = self._request(capability, body, auth)
+        payload = self._request(capability, body, auth, context)
         await self._send_signed(payload)
         resp = await self._recv_signed(timeout)
         if resp is None:
             raise ConnectionError("connection closed")
         return resp
 
-    async def call_stream(self, capability: str, body: bytes = b"", *, auth=None, timeout: float = 30.0):
+    async def call_stream(self, capability: str, body: bytes = b"", *, auth=None, context=None, timeout: float = 30.0):
         """Async-iterate response payloads until a single Response or an end-of-
         stream chunk."""
-        await self._send_signed(self._request(capability, body, auth))
+        await self._send_signed(self._request(capability, body, auth, context))
         while True:
             resp = await self._recv_signed(timeout)
             if resp is None:
@@ -76,7 +76,7 @@ class Conn:
             if p.get("typ") == "Response" or (p.get("typ") == "StreamChunk" and p.get("stream_end")):
                 return
 
-    def _request(self, capability, body, auth) -> dict:
+    def _request(self, capability, body, auth, context=None) -> dict:
         return envelope.build_envelope_payload(
             from_id=self.local.id,
             to_id=self.peer["id"],
@@ -84,6 +84,7 @@ class Conn:
             correlation=os.urandom(16),
             capability=capability,
             auth=auth,
+            context=context,
             body=body,
         )
 
