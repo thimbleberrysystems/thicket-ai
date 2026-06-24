@@ -1,0 +1,14 @@
+# Coverage config for the Thicket Python SDK + fibers/weaves/apps.
+# Run:  PYTHONPATH=. python -m coverage run --branch -m unittest discover -s tests
+#       python -m coverage report -m
+[run]
+branch = True
+
+[report]
+show_missing = True
+# Standalone launchers are exercised structurally (test_smoke asserts every fiber
+# is launchable), not by executing the process — exclude them from the denominator.
+exclude_also =
+    if __name__ == .__main__.:
+    raise NotImplementedError
+    if TYPE_CHECKING:

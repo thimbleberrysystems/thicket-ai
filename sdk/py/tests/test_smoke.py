@@ -11,6 +11,7 @@ import inspect
 import os
 import sys
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(__file__)
 REPO = os.path.join(HERE, "..", "..", "..")
@@ -34,6 +35,28 @@ class Launchable(unittest.TestCase):
                 self.assertTrue(inspect.iscoroutinefunction(mod.run), f"{name}.run isn't async")
                 src = inspect.getsource(mod)
                 self.assertIn('if __name__ == "__main__"', src, f"{name} can't be launched standalone")
+
+    def test_run_main_parses_argv_and_invokes_run(self):
+        from thicket.fiber import run_main
+
+        seen = {}
+
+        async def fake_run(local, host, port, dir_id, **kw):
+            seen.update(host=host, port=port, dir_id=dir_id, id_len=len(local.id))
+
+        with mock.patch.object(sys, "argv", ["x", "127.0.0.1", "9", "ab" * 32]):
+            run_main(fake_run)
+        self.assertEqual(seen["host"], "127.0.0.1")
+        self.assertEqual(seen["port"], 9)
+        self.assertEqual(seen["dir_id"], bytes.fromhex("ab" * 32))
+        self.assertEqual(seen["id_len"], 32)
+
+    def test_run_main_usage_error_on_too_few_args(self):
+        from thicket.fiber import run_main
+
+        with mock.patch.object(sys, "argv", ["x", "only-one"]):
+            with self.assertRaises(SystemExit):
+                run_main(lambda *a, **k: None)
 
 
 @unittest.skipUnless(os.path.exists(DIR_BIN), "rust directory_server example not built")

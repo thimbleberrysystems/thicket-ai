@@ -58,4 +58,4 @@ jobs:
           cd sdk/py
           python -m coverage report -m \
             --include="*/thicket/*,*/fibers/py/*,*/weaves/py/*,*/apps/py/*" \
-            --fail-under=85
+            --fail-under=90

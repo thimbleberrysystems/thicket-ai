@@ -82,6 +82,17 @@ class GrantVerifyRejections(unittest.TestCase):
                 grant.caveats(["x", "y"], self.now + 500),  # adds "y" — widening
             )
 
+    def test_attenuation_cannot_drop_a_constraint(self):
+        constrained = grant.issue(
+            self.target.id, self.target.working, self.alice.public(),
+            grant.caveats(["x"], self.now + 1000, {"region": "eu"}),
+        )
+        with self.assertRaises(ValueError):  # dropping the region caveat widens authority
+            grant.attenuate(
+                constrained, self.alice, WorkingKey.generate().public(),
+                grant.caveats(["x"], self.now + 500),
+            )
+
 
 class RecordVerifyRejections(unittest.TestCase):
     def _record(self, ident):

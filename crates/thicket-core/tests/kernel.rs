@@ -205,3 +205,12 @@ fn signature_encodes_as_cbor_byte_string() {
         "expected a 64-byte CBOR byte string (the signature) in the record",
     );
 }
+
+#[test]
+fn id_from_hex_roundtrips_and_rejects_bad_input() {
+    use thicket_core::Id;
+    let id = RootKey::generate().id();
+    assert_eq!(Id::from_hex(&id.hex()).unwrap(), id, "hex round-trips");
+    assert!(Id::from_hex("nothex!!").is_err(), "non-hex rejected");
+    assert!(Id::from_hex("abcd").is_err(), "wrong length rejected");
+}

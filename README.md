@@ -8,7 +8,8 @@
 discovers, authenticates, and securely calls any other. No central hub. No shared SDK.
 
 [![CI](https://github.com/thimbleberrysystems/thicket-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/thimbleberrysystems/thicket-ai/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-111%20passing-brightgreen)](#proof-not-promises)
+[![Tests](https://img.shields.io/badge/tests-152%20passing-brightgreen)](#proof-not-promises)
+[![Coverage](https://img.shields.io/badge/coverage-~90%25-brightgreen)](#proof-not-promises)
 [![Rust](https://img.shields.io/badge/core-Rust-orange)](crates/)
 [![Python SDK](https://img.shields.io/badge/SDK-Python-blue)](sdk/py/)
 [![License](https://img.shields.io/badge/license-MIT-black)](LICENSE)
@@ -175,7 +176,8 @@ treats as first-class:
 This is early, research-grade software — and unusually well-tested for its age.
 Everything below is covered by the CI gate, today:
 
-- ✅ **111 tests green** — 66 Rust + 45 Python, on every commit.
+- ✅ **152 tests green, ~90% coverage** — 67 Rust + 85 Python, on every commit;
+  Python CI enforces a 90% coverage floor (`cargo-llvm-cov` + `coverage.py`).
 - ✅ **Cross-language interop, both directions** — a Python client invokes a Rust
   fiber, and a Rust client invokes a Python fiber, over real TCP + Noise.
 - ✅ **Byte-exact conformance** — the Python SDK reproduces the Rust core's signed
@@ -243,9 +245,11 @@ Next: a hosted playground, SDKs in more languages (the wire spec makes this
 additive, not a rewrite), production directory federation, and a public catalog
 of fibers.
 
-**Contributing & design partners:** issues and PRs welcome. If you're building
-agents that need to talk to agents you don't control, we want to hear from you —
-open an issue or reach out.
+**Contributing & design partners:** issues and PRs welcome — see
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for one-command setup (`make install`),
+testing (`make test`), and coverage (`make coverage`). If you're building agents
+that need to talk to agents you don't control, we want to hear from you — open an
+issue or reach out.
 
 ## License
 
