@@ -10,8 +10,9 @@ Run standalone:  python3 llm.py <dir_host> <dir_port> <dir_id_hex>
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
-from thicket import grant, record, unix_now
+from thicket import grant, record, tracing, unix_now
 from thicket.fiber import run_fiber
 
 
@@ -35,10 +36,14 @@ def ollama_model(prompt: str, *, model="qwen2.5:0.5b", host="http://127.0.0.1:11
         return [json.loads(r.read().decode("utf-8"))["response"]]
 
 
-def make_handler(local, *, model=stub_model, require_grant: bool = False):
+def make_handler(local, *, model=stub_model, require_grant: bool = False, emitter=None):
     async def handler(conn, payload: dict) -> None:
         if payload.get("capability") != "generate":
             await conn.respond_error(payload, "NotFound", "unknown capability")
+            return
+        ctx = payload.get("context") or {}
+        if tracing.deadline_exceeded(ctx):
+            await conn.respond_error(payload, "DeadlineExceeded", "deadline passed before generation")
             return
         if require_grant:
             auth = payload.get("auth")
@@ -55,25 +60,35 @@ def make_handler(local, *, model=stub_model, require_grant: bool = False):
                 return
         prompt = payload.get("body", b"").decode("utf-8", "replace")
         tokens = await asyncio.to_thread(model, prompt)  # model call may block (e.g. HTTP)
-        for i, tok in enumerate(tokens):
-            await conn.stream_chunk(payload, i, i == len(tokens) - 1, tok.encode("utf-8"))
+        span = (
+            emitter.span(ctx, name="model:generate", kind="model", attrs={"tokens": len(tokens)})
+            if emitter
+            else contextlib.nullcontext()
+        )
+        async with span:
+            for i, tok in enumerate(tokens):
+                await conn.stream_chunk(payload, i, i == len(tokens) - 1, tok.encode("utf-8"))
 
     return handler
 
 
 async def run(local, dir_host, dir_port, dir_id, *, host="127.0.0.1", model=stub_model, require_grant=False, ready=None):
     """Serve `generate`, register with the directory, then serve forever."""
-    await run_fiber(
-        local,
-        dir_host,
-        dir_port,
-        dir_id,
-        kind="model",
-        capabilities=[record.capability("model", "text generation", tags=["chat"])],
-        handler=make_handler(local, model=model, require_grant=require_grant),
-        host=host,
-        ready=ready,
-    )
+    emitter = tracing.SpanEmitter(local, dir_host, dir_port, dir_id)
+    try:
+        await run_fiber(
+            local,
+            dir_host,
+            dir_port,
+            dir_id,
+            kind="model",
+            capabilities=[record.capability("model", "text generation", tags=["chat"])],
+            handler=make_handler(local, model=model, require_grant=require_grant, emitter=emitter),
+            host=host,
+            ready=ready,
+        )
+    finally:
+        await emitter.close()
 
 
 if __name__ == "__main__":

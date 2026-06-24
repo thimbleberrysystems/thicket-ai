@@ -4,7 +4,7 @@ Shares no code with the Rust core; conformance is proven against
 ``spec/vectors/``.
 """
 
-from . import cbor, crypto, directory, envelope, grant, identity, record, secure, server
+from . import cbor, crypto, directory, envelope, grant, identity, record, secure, server, tracing
 from .conn import Conn
 from .directory import DirectoryClient
 from .crypto import RootKey, WorkingKey, sha256, signing_input, verify_sig
@@ -29,6 +29,7 @@ __all__ = [
     "secure",
     "server",
     "directory",
+    "tracing",
     "Conn",
     "DirectoryClient",
     "LocalIdentity",

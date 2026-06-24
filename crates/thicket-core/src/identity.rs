@@ -38,6 +38,16 @@ impl Id {
     pub fn hex(&self) -> String {
         hex::encode(&self.0)
     }
+
+    /// Parse a 32-byte id from its hex encoding (e.g. a peer id read from a
+    /// record, to pin during a connect).
+    pub fn from_hex(s: &str) -> Result<Id> {
+        let bytes = hex::decode(s).map_err(|_| Error::BadKey)?;
+        if bytes.len() != 32 {
+            return Err(Error::BadKey);
+        }
+        Ok(Id(bytes))
+    }
 }
 
 impl fmt::Display for Id {
