@@ -55,10 +55,74 @@ def attenuate(grant: dict, holder_key: crypto.WorkingKey, new_audience_pub: byte
 
 
 def _ensure_narrows(child: dict, parent: dict) -> None:
+    if not _narrows(child, parent):
+        raise ValueError("attenuation widened authority")
+
+
+def _narrows(child: dict, parent: dict) -> bool:
     pc = set(parent["capabilities"])
     if "*" not in pc:
         for c in child["capabilities"]:
             if c == "*" or c not in pc:
-                raise ValueError("attenuation widened capabilities")
+                return False
     if child["not_after"] > parent["not_after"]:
-        raise ValueError("attenuation extended expiry")
+        return False
+    for k, v in (parent.get("constraints") or {}).items():
+        if (child.get("constraints") or {}).get(k) != v:
+            return False
+    return True
+
+
+def _endorsed(root_pub: bytes, target_id: bytes, endorsements, working_pub: bytes, now: int) -> bool:
+    if target_id != crypto.sha256(root_pub):
+        return False
+    endo = next((e for e in endorsements if e["working_pub"] == working_pub), None)
+    if endo is None:
+        return False
+    view = {
+        "working_pub": endo["working_pub"],
+        "not_before": endo["not_before"],
+        "not_after": endo["not_after"],
+    }
+    if not crypto.verify_sig(
+        root_pub, crypto.signing_input("thicket-endorsement-v1", view), endo["root_sig"]
+    ):
+        return False
+    return endo["not_before"] <= now <= endo["not_after"]
+
+
+def verify(grant: dict, target_root_pub: bytes, target_endorsements, caller_pub: bytes, capability: str, now: int) -> bool:
+    """Verify, from the target's view, that `grant` authorizes `caller_pub` to
+    invoke `capability` at `now` (chain links, narrowing, expiry, audience)."""
+    links = grant.get("links") or []
+    if not links:
+        return False
+    if grant["target"] != crypto.sha256(target_root_pub):
+        return False
+    prev = b""
+    parent = None
+    for idx, link in enumerate(links):
+        if idx == 0:
+            if not _endorsed(target_root_pub, grant["target"], target_endorsements, link["issuer_pub"], now):
+                return False
+        elif link["issuer_pub"] != links[idx - 1]["audience_pub"]:
+            return False
+        if parent is not None and not _narrows(link["caveats"], parent):
+            return False
+        view = {
+            "target": grant["target"],
+            "issuer_pub": link["issuer_pub"],
+            "audience_pub": link["audience_pub"],
+            "caveats": link["caveats"],
+            "prev": prev,
+        }
+        if not crypto.verify_sig(link["issuer_pub"], crypto.signing_input("thicket-grant-v1", view), link["sig"]):
+            return False
+        caps = link["caveats"]["capabilities"]
+        if "*" not in caps and capability not in caps:
+            return False
+        if now > link["caveats"]["not_after"]:
+            return False
+        prev = link["sig"]
+        parent = link["caveats"]
+    return links[-1]["audience_pub"] == caller_pub

@@ -69,6 +69,41 @@ def sign_record(payload: dict, working: crypto.WorkingKey) -> dict:
     return {"payload": payload, "signer_pub": working.public(), "signature": sig}
 
 
+def self_record(
+    local,
+    *,
+    kind,
+    capabilities,
+    locators,
+    schema="thicket/record/1",
+    visibility="Public",
+    lease_ttl=3600,
+    version=1,
+    profile=None,
+    supports=None,
+    ext=None,
+) -> dict:
+    """A fiber builds and signs a record for its own identity."""
+    from .identity import unix_now
+
+    now = unix_now()
+    payload = build_record_payload(
+        schema=schema,
+        root=local.root,
+        endorsement=local.endorsements[0],
+        kind=kind,
+        locators=locators,
+        capabilities=capabilities,
+        profile=profile,
+        supports=supports,
+        visibility=visibility,
+        lease=lease(lease_ttl, now, now + lease_ttl),
+        version=version,
+        ext=ext,
+    )
+    return sign_record(payload, local.working)
+
+
 def verify_record(signed: dict, now: int) -> bool:
     payload = signed["payload"]
     # 1. id binds to the root public key

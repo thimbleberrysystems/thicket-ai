@@ -68,6 +68,10 @@ async def handshake(reader, writer, local, initiator: bool, now: int):
     (noise.set_as_initiator if initiator else noise.set_as_responder)()
     noise.set_keypair_from_private_bytes(Keypair.STATIC, os.urandom(32))
     noise.start_handshake()
+    # Hold the handshake-state reference: it stays populated even after the final
+    # message clears `noise_protocol.handshake_state` (needed for the responder,
+    # whose peer static arrives in the last message).
+    hs = noise.noise_protocol.handshake_state
     local_static_pub = bytes(noise.noise_protocol.keypairs["s"].public_bytes)
     proof_bytes = make_proof(local, local_static_pub)
 
@@ -75,7 +79,7 @@ async def handshake(reader, writer, local, initiator: bool, now: int):
         await write_frame(writer, noise.write_message(b""))  # -> e
         m2 = await read_frame(reader)  # <- e, ee, s, es
         peer_proof = cbor.decode(bytes(noise.read_message(m2)))
-        remote_static = bytes(noise.noise_protocol.handshake_state.rs.public_bytes)
+        remote_static = bytes(hs.rs.public_bytes)
         await write_frame(writer, noise.write_message(proof_bytes))  # -> s, se
     else:
         m1 = await read_frame(reader)  # <- e
@@ -83,7 +87,7 @@ async def handshake(reader, writer, local, initiator: bool, now: int):
         await write_frame(writer, noise.write_message(proof_bytes))  # -> e, ee, s, es
         m3 = await read_frame(reader)  # <- s, se
         peer_proof = cbor.decode(bytes(noise.read_message(m3)))
-        remote_static = bytes(noise.noise_protocol.handshake_state.rs.public_bytes)
+        remote_static = bytes(hs.rs.public_bytes)
 
     peer = verify_proof(peer_proof, remote_static, now)
     return noise, peer
