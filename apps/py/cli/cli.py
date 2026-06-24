@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 
-from thicket import Conn, DirectoryClient
+from thicket import Conn, DirectoryClient, cbor
 
 
 async def generate(dir_host, dir_port, dir_id, local, query: str, *, auth=None, timeout=30.0) -> str:
@@ -23,9 +23,11 @@ async def generate(dir_host, dir_port, dir_id, local, query: str, *, auth=None, 
     conn = await Conn.connect(host, int(port), local, expected_id=fiber_id)
     try:
         tokens = []
-        async for chunk in conn.call_stream("generate", query.encode("utf-8"), auth=auth, timeout=timeout):
-            tokens.append(chunk.get("body", b"").decode("utf-8", "replace"))
-        return "".join(tokens)
+        async for chunk in conn.call_stream("generate", cbor.encode(query), auth=auth, timeout=timeout):
+            body = chunk.get("body", b"")
+            if body:
+                tokens.append(cbor.decode(body))
+        return "".join(t for t in tokens if isinstance(t, str))
     finally:
         await conn.close()
 

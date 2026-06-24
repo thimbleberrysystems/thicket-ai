@@ -5,6 +5,7 @@ Shares no code with the Rust core; conformance is proven against
 """
 
 from . import cbor, crypto, directory, envelope, federation, grant, identity, record, secure, server, tracing
+from .app import Context, Fiber, ThicketError
 from .conn import Conn
 from .directory import DirectoryClient
 from .federation import FederatedDirectory
@@ -35,6 +36,9 @@ __all__ = [
     "Conn",
     "DirectoryClient",
     "FederatedDirectory",
+    "Fiber",
+    "Context",
+    "ThicketError",
     "LocalIdentity",
     "serve",
     "unix_now",

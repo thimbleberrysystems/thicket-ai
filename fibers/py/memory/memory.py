@@ -1,49 +1,31 @@
-"""Memory fiber (Wave 2).
+"""Memory fiber: conversation memory keyed by a **session reference** — callers
+pass a session id, not the whole history. State lives in ``ctx.config`` so each
+running instance is isolated."""
 
-Serves conversation memory keyed by a **session reference** (pass-by-reference
-context): callers pass a session id, not the whole history.
+from thicket import Conn, Fiber, cbor
 
-Capabilities: `memory.append`, `memory.materialize`, `memory.retrieve`.
-"""
-
-from __future__ import annotations
-
-from thicket import Conn, cbor, record
-from thicket.fiber import run_fiber
+memory = Fiber(kind="memory")
 
 
-def make_handler(store: dict):
-    async def handler(conn, payload: dict) -> None:
-        cap = payload.get("capability")
-        args = cbor.decode(payload["body"]) if payload.get("body") else {}
-        if cap == "memory.append":
-            store.setdefault(args["session"], []).append(args["message"])
-            await conn.respond(payload, cbor.encode({"ok": True}))
-        elif cap == "memory.materialize":
-            await conn.respond(payload, cbor.encode({"messages": store.get(args["session"], [])}))
-        elif cap == "memory.retrieve":
-            q = (args.get("query") or "").lower()
-            msgs = store.get(args["session"], [])
-            hits = [m for m in msgs if q in str(m.get("content", "")).lower()] if q else list(msgs)
-            await conn.respond(payload, cbor.encode({"messages": hits}))
-        else:
-            await conn.respond_error(payload, "NotFound", "unknown capability")
-
-    return handler
+@memory.handles("memory.append", "append a message to a session", tags=["memory"])
+async def append(req, ctx):
+    ctx.config.setdefault("store", {}).setdefault(req["session"], []).append(req["message"])
+    return {"ok": True}
 
 
-async def run(local, dir_host, dir_port, dir_id, *, host="127.0.0.1", ready=None, store=None):
-    await run_fiber(
-        local,
-        dir_host,
-        dir_port,
-        dir_id,
-        kind="memory",
-        capabilities=[record.capability("memory", "conversation memory store", tags=["memory"])],
-        handler=make_handler({} if store is None else store),
-        host=host,
-        ready=ready,
-    )
+@memory.handles("memory.materialize", "all messages in a session")
+async def materialize(req, ctx):
+    return {"messages": ctx.config.setdefault("store", {}).get(req["session"], [])}
+
+
+@memory.handles("memory.retrieve", "messages in a session matching a query")
+async def retrieve(req, ctx):
+    msgs = ctx.config.setdefault("store", {}).get(req["session"], [])
+    q = (req.get("query") or "").lower()
+    return {"messages": [m for m in msgs if q in str(m.get("content", "")).lower()] if q else list(msgs)}
+
+
+run = memory.run
 
 
 class MemoryClient:
@@ -77,6 +59,4 @@ class MemoryClient:
 
 
 if __name__ == "__main__":
-    from thicket.fiber import run_main
-
-    run_main(run)
+    memory.main()

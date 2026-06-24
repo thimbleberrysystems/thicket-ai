@@ -1,20 +1,12 @@
-"""Router fiber (Wave 4): selects among model fibers by envelope constraints
-(cost / latency / context window) + reputation.
+"""Router fiber: picks the best model fiber for a need (cost / latency / context
+window + reputation). It discovers candidate `model` fibers, reads their
+advertised `profile`, filters by the hard constraints, optimizes, and returns the
+chosen fiber's id + endpoint — the caller then connects directly (the router is
+never in the data path)."""
 
-Serves `route`: given a `need`, the router discovers candidate `model` fibers from
-the directory, reads each one's advertised `profile` (cost_micros, latency_ms,
-context_window, reputation), filters to those that satisfy the hard constraints,
-and picks the best by the requested optimization. It returns the chosen fiber's
-id + endpoint; the caller then connects directly (the router is not in the data
-path).
-"""
+from thicket import Fiber, ThicketError
 
-from __future__ import annotations
-
-from thicket import DirectoryClient, cbor, record
-from thicket.fiber import run_fiber
-
-ROUTE = "route"
+router = Fiber(kind="weave")
 
 
 def _int(profile: dict, key: str, default: int) -> int:
@@ -25,13 +17,10 @@ def _int(profile: dict, key: str, default: int) -> int:
 
 
 def select(need: dict, candidates: list):
-    """Pure selection: hard-filter by constraints, then optimize. Returns the
-    chosen candidate dict, or None if none qualify."""
-    max_cost = need.get("max_cost_micros")
-    max_latency = need.get("max_latency_ms")
-    min_context = need.get("min_context")
-    optimize = need.get("optimize", "cost")
-
+    """Hard-filter by constraints, then optimize. Returns the chosen candidate or
+    None if none qualify."""
+    max_cost, max_latency = need.get("max_cost_micros"), need.get("max_latency_ms")
+    min_context, optimize = need.get("min_context"), need.get("optimize", "cost")
     eligible = []
     for c in candidates:
         if max_cost is not None and c["cost_micros"] > max_cost:
@@ -43,7 +32,6 @@ def select(need: dict, candidates: list):
         eligible.append(c)
     if not eligible:
         return None
-
     keyers = {
         "cost": lambda c: (c["cost_micros"], -c["reputation"]),
         "latency": lambda c: (c["latency_ms"], -c["reputation"]),
@@ -70,41 +58,17 @@ def _candidates_from_hits(hits: list) -> list:
     return out
 
 
-def make_handler(local, dir_host, dir_port, dir_id):
-    async def handler(conn, payload: dict) -> None:
-        if payload.get("capability") != ROUTE:
-            await conn.respond_error(payload, "NotFound", "unknown capability")
-            return
-        need = cbor.decode(payload["body"]) if payload.get("body") else {}
-
-        dc = await DirectoryClient.connect(dir_host, dir_port, local, dir_id)
-        hits = await dc.search(need.get("intent_text", "text generation"), kind="model", top_k=20)
-        await dc.close()
-
-        chosen = select(need, _candidates_from_hits(hits))
-        if chosen is None:
-            await conn.respond_error(payload, "NotFound", "no model satisfies the constraints")
-            return
-        await conn.respond(payload, cbor.encode({"chosen_id": chosen["id"], "endpoint": chosen["endpoint"]}))
-
-    return handler
+@router.handles("route", "pick the best model fiber for a need", tags=["route"])
+async def route(need, ctx):
+    need = need or {}
+    hits = await ctx.search("model", need.get("intent_text", "text generation"), top_k=20)
+    chosen = select(need, _candidates_from_hits(hits))
+    if chosen is None:
+        raise ThicketError("NotFound", "no model satisfies the constraints")
+    return {"chosen_id": chosen["id"], "endpoint": chosen["endpoint"]}
 
 
-async def run(local, dir_host, dir_port, dir_id, *, host="127.0.0.1", ready=None):
-    await run_fiber(
-        local,
-        dir_host,
-        dir_port,
-        dir_id,
-        kind="weave",
-        capabilities=[record.capability("weave", "route a request to the best model fiber", tags=["route"])],
-        handler=make_handler(local, dir_host, dir_port, dir_id),
-        host=host,
-        ready=ready,
-    )
-
+run = router.run
 
 if __name__ == "__main__":
-    from thicket.fiber import run_main
-
-    run_main(run)
+    router.main()

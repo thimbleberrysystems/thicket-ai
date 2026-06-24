@@ -71,44 +71,43 @@ This is the whole thesis in one command: **a protocol, not a framework.**
 
 ---
 
-## Write a fiber in ~15 lines
+## Write a fiber in 3 lines
 
 A **Fiber** is any participant on the Thicket: one identity, one job, one signed
-record of what it can do. Here's a complete one.
+record of what it can do. Here is a *complete* one — identity, signing,
+encryption, discovery, deadlines, grants, and tracing are all the SDK's job:
 
 ```python
-import asyncio
-from thicket import LocalIdentity, RootKey, record
-from thicket.fiber import run_fiber
+from thicket import Fiber
 
-async def handle(conn, req):
-    city = req["body"].decode()
-    await conn.respond(req, f"{city}: 22°C, clear".encode())
+weather = Fiber(kind="tool")
 
-async def main():
-    me = LocalIdentity.from_root(RootKey.generate())   # self-certifying: id = hash(pubkey)
-    await run_fiber(
-        me, DIR_HOST, DIR_PORT, DIR_ID,                # register with a directory
-        kind="tool",
-        capabilities=[record.capability("tool", "current weather", tags=["weather"])],
-        handler=handle,                                # serve, peer-to-peer, encrypted
-    )
+@weather.handles("weather", "current weather")
+async def report(city):
+    return {"temp_c": 22, "sky": "clear", "city": city}
 
-asyncio.run(main())
+if __name__ == "__main__":
+    weather.main()       # python weather.py <dir_host> <dir_port> <dir_id>
 ```
 
-Discovering and calling it from anywhere:
+A handler takes the decoded request and returns a value (auto-encoded). **Yield**
+to stream. A **Weave** composes other fibers with one line each — `ctx.call`
+hides discovery, the connection, context propagation, and grant attenuation:
 
 ```python
-dc = await DirectoryClient.connect(DIR_HOST, DIR_PORT, me, DIR_ID)
-hit = (await dc.search("what's the weather?", kind="tool"))[0]["payload"]   # semantic discovery
-host, port = hit["locators"][0]["endpoint"].split(":")
+from thicket import Fiber
 
-conn = await Conn.connect(host, int(port), me, expected_id=hit["id"])       # pins identity
-print((await conn.call("weather", b"Lisbon"))["payload"]["body"].decode())
+trip = Fiber(kind="weave")
+
+@trip.handles("plan", "what to wear today")
+async def plan(req, ctx):
+    w = await ctx.call("tool", "weather", req["city"])
+    tip = await ctx.gather("model", "generate", f"What to wear in {w['temp_c']}°C, {w['sky']}?")
+    return {"weather": w, "advice": tip}
 ```
 
-No framework to adopt. No base class to inherit. Just an identity and a wire.
+No framework to adopt. No base class to inherit. No boilerplate. Just the logic —
+which is the whole point: **a protocol people will actually use.**
 
 ---
 
