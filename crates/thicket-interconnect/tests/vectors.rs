@@ -19,7 +19,10 @@ const NOW: u64 = 1_000_000;
 
 /// Deterministic identity from a single seed byte.
 fn ident(seed: u8) -> (RootKey, WorkingKey) {
-    (RootKey::from_seed(&[seed; 32]), WorkingKey::from_seed(&[seed.wrapping_add(100); 32]))
+    (
+        RootKey::from_seed(&[seed; 32]),
+        WorkingKey::from_seed(&[seed.wrapping_add(100); 32]),
+    )
 }
 
 fn record() -> (SignedRecord, WorkingKey) {
@@ -103,7 +106,10 @@ fn vectors_are_byte_stable() {
         } else {
             let committed = std::fs::read(&path)
                 .unwrap_or_else(|e| panic!("missing vector {name}: {e} (run THICKET_REGEN=1)"));
-            assert_eq!(committed, bytes, "vector {name} drifted from committed bytes");
+            assert_eq!(
+                committed, bytes,
+                "vector {name} drifted from committed bytes"
+            );
         }
     }
 }

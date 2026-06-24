@@ -455,8 +455,13 @@ fn envelope_carries_context_through_sign_and_verify() {
         .sign(&a.working)
         .unwrap();
 
-    env.verify(&a.root.public(), &a.endorsements, NOW, &RevocationSet::new())
-        .unwrap();
+    env.verify(
+        &a.root.public(),
+        &a.endorsements,
+        NOW,
+        &RevocationSet::new(),
+    )
+    .unwrap();
     assert_eq!(env.payload.context.trace_id, vec![7; 16]);
     assert_eq!(env.payload.context.budget, Some(1000));
     assert!(!env.is_expired(NOW));

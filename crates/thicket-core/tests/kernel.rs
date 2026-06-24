@@ -186,7 +186,10 @@ fn ids_encode_as_cbor_byte_strings() {
     let mut buf = Vec::new();
     ciborium::into_writer(&id, &mut buf).unwrap();
     // 32-byte byte string => header 0x58 (major type 2, 1-byte length) + 0x20 (32)
-    assert_eq!(buf[0], 0x58, "expected CBOR byte-string header (major type 2)");
+    assert_eq!(
+        buf[0], 0x58,
+        "expected CBOR byte-string header (major type 2)"
+    );
     assert_eq!(buf[1], 32);
     assert_eq!(buf.len(), 2 + 32);
 }
