@@ -206,9 +206,12 @@ class Wave3Contract(unittest.TestCase):
 
             async def scenario():
                 _, ctask, cinfo = await _serve3(collector_mod.run, dir_id, host, port)
+                sink = {"id": cinfo["id"], "endpoint": cinfo["endpoint"]}
                 _, ttask = await _serve(calc.run, dir_id, host, port)
                 _, ltask = await _serve(llm.run, dir_id, host, port)
-                _, wtask = await _serve(weave_mod.run, dir_id, host, port)
+                # the weave routes its trace to this sink; tool/llm inherit it via
+                # the propagated context (they were told nothing about a sink).
+                _, wtask = await _serve(weave_mod.run, dir_id, host, port, sink=sink)
                 consumer = LocalIdentity.from_root(RootKey.generate())
 
                 dc = await DirectoryClient.connect(host, port, consumer, dir_id)
@@ -250,6 +253,56 @@ class Wave3Contract(unittest.TestCase):
                 {c["span"]["name"] for c in root["children"]},
                 {"tool:calc.add", "model:generate"},
             )
+        finally:
+            proc.kill()
+            proc.wait()
+            proc.stdout.close()
+
+    def test_weave_routes_trace_to_its_chosen_sink(self):
+        proc, dir_id, host, port = self._directory()
+        try:
+
+            async def scenario():
+                # two trace sinks; the weave is configured to route to B only.
+                _, c1, a_info = await _serve3(collector_mod.run, dir_id, host, port)
+                _, c2, b_info = await _serve3(collector_mod.run, dir_id, host, port)
+                sink_b = {"id": b_info["id"], "endpoint": b_info["endpoint"]}
+                _, ttask = await _serve(calc.run, dir_id, host, port)
+                _, ltask = await _serve(llm.run, dir_id, host, port)
+                _, wtask, winfo = await _serve3(weave_mod.run, dir_id, host, port, sink=sink_b)
+                consumer = LocalIdentity.from_root(RootKey.generate())
+
+                wh, wp = winfo["endpoint"].split(":")
+                trace = b"trace-routed-0001"
+                conn = await Conn.connect(wh, int(wp), consumer, expected_id=winfo["id"])
+                await conn.call(
+                    "describe_sum", cbor.encode({"a": 1, "b": 1}),
+                    context={"trace_id": trace, "span_id": b"rootspan"}, timeout=20,
+                )
+                await conn.close()
+
+                async def trace_at(info):
+                    cc = await collector_mod.CollectorClient.connect(
+                        info["endpoint"].split(":")[0], int(info["endpoint"].split(":")[1]),
+                        consumer, info["id"],
+                    )
+                    out = {"spans": []}
+                    for _ in range(50):
+                        out = await cc.trace(trace)
+                        if len(out["spans"]) >= 3:
+                            break
+                        await asyncio.sleep(0.1)
+                    await cc.close()
+                    return out
+
+                in_b = await trace_at(b_info)
+                in_a = await trace_at(a_info)
+                await _stop(c1, c2, ttask, ltask, wtask)
+                return in_a, in_b
+
+            in_a, in_b = asyncio.run(asyncio.wait_for(scenario(), 40))
+            self.assertEqual(len(in_b["spans"]), 3, "the chosen sink B receives the whole trace")
+            self.assertEqual(len(in_a["spans"]), 0, "sink A, not chosen, receives nothing")
         finally:
             proc.kill()
             proc.wait()

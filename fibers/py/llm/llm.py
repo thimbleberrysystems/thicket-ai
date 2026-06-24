@@ -74,7 +74,7 @@ def make_handler(local, *, model=stub_model, require_grant: bool = False, emitte
 
 async def run(local, dir_host, dir_port, dir_id, *, host="127.0.0.1", model=stub_model, require_grant=False, ready=None):
     """Serve `generate`, register with the directory, then serve forever."""
-    emitter = tracing.SpanEmitter(local, dir_host, dir_port, dir_id)
+    emitter = tracing.SpanEmitter(local)
     try:
         await run_fiber(
             local,

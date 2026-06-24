@@ -54,7 +54,7 @@ def make_handler(local, *, require_grant: bool = False, emitter=None):
 
 
 async def run(local, dir_host, dir_port, dir_id, *, host="127.0.0.1", require_grant=False, ready=None):
-    emitter = tracing.SpanEmitter(local, dir_host, dir_port, dir_id)
+    emitter = tracing.SpanEmitter(local)
     try:
         await run_fiber(
             local,

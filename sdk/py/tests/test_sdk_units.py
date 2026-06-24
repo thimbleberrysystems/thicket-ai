@@ -86,6 +86,19 @@ class Tracing(unittest.TestCase):
         self.assertEqual(len(child["trace_id"]), 16)
         self.assertEqual(child["parent_span_id"], b"")
 
+    def test_sink_propagates_and_can_be_overridden(self):
+        sink_a = {"id": b"A" * 32, "endpoint": "127.0.0.1:1"}
+        sink_b = {"id": b"B" * 32, "endpoint": "127.0.0.1:2"}
+        parent = {"trace_id": b"T", "span_id": b"P", "sink": sink_a}
+        # inherits the parent's sink by default
+        self.assertEqual(tracing.child_context(parent)["sink"], sink_a)
+        # a weave reroutes its subtree
+        self.assertEqual(tracing.child_context(parent, sink=sink_b)["sink"], sink_b)
+        # ...or stops reporting below here
+        self.assertNotIn("sink", tracing.child_context(parent, sink=None))
+        # no sink anywhere => none introduced
+        self.assertNotIn("sink", tracing.child_context({"trace_id": b"T"}))
+
     def test_deadline_and_budget_predicates(self):
         self.assertTrue(tracing.deadline_exceeded({"deadline": 100}, now=101))
         self.assertFalse(tracing.deadline_exceeded({"deadline": 100}, now=100))

@@ -90,9 +90,17 @@ text), `modalities` (array of text), `envelope` (map text→text).
 
 ### Context
 `trace_id?` (bytes), `span_id?` (bytes), `parent_span_id?` (bytes), `deadline?`
-(uint), `budget?` (uint). A downstream call's Context **tightens**: same
-`trace_id`, fresh `span_id`, `parent_span_id` = caller's span, `deadline =
-min(parent, local)`, `budget = parent − spent`.
+(uint), `budget?` (uint), `sink?` (SinkRef). A downstream call's Context
+**tightens**: same `trace_id`, fresh `span_id`, `parent_span_id` = caller's span,
+`deadline = min(parent, local)`, `budget = parent − spent`. `sink` propagates
+unchanged unless the caller overrides it (a weave rerouting its subtree's spans)
+or clears it (stop reporting below this point).
+
+### SinkRef
+`id` (Id bytes), `endpoint` (text). Where fibers in a trace **self-report** their
+spans — chosen by the initiator (typically a weave), carried in the Context so
+every hop reports to the same place. Absent ⇒ no reporting. The span *format* and
+what the sink does with spans are the sink fiber's business, not the wire's.
 
 ### EnvelopePayload
 `v` (uint), `from` (Id bytes), `to` (Id bytes), `typ` (enum text:

@@ -47,6 +47,17 @@ pub struct ErrorInfo {
     pub message: String,
 }
 
+/// A trace sink: where fibers in a trace self-report their spans. Chosen by the
+/// initiator (typically a weave) and carried in the context so every hop reports
+/// to the same place; a nested weave may override it for its subtree.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SinkRef {
+    /// The sink fiber's id (pinned on connect).
+    pub id: Id,
+    /// Where to reach the sink, e.g. `"127.0.0.1:9000"`.
+    pub endpoint: String,
+}
+
 /// Cross-cutting context propagated in-band (plan §6): distributed tracing,
 /// deadline, and budget. Fibers self-report spans against it and **tighten** it
 /// for downstream calls (a child's deadline/budget can only shrink).
@@ -64,6 +75,12 @@ pub struct Context {
     /// Remaining spend allowance; `None` = unmetered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget: Option<u64>,
+    /// Where this trace's spans are self-reported; `None` = no reporting. Set by
+    /// the initiator / a weave and propagated to children (overridable per
+    /// subtree). Span *format* and what the sink does are the sink fiber's
+    /// business, not the framework's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sink: Option<SinkRef>,
 }
 
 impl Context {
@@ -73,6 +90,7 @@ impl Context {
             && self.parent_span_id.is_empty()
             && self.deadline.is_none()
             && self.budget.is_none()
+            && self.sink.is_none()
     }
 
     /// Derive the context for a downstream call: same trace, a fresh span, this
@@ -90,6 +108,7 @@ impl Context {
             parent_span_id: self.span_id.clone(),
             deadline,
             budget: self.budget.map(|b| b.saturating_sub(spent)),
+            sink: self.sink.clone(), // the sink propagates with the trace
         }
     }
 

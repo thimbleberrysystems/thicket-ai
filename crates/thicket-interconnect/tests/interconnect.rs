@@ -422,6 +422,7 @@ fn context_child_tightens_deadline_and_budget() {
         parent_span_id: vec![],
         deadline: Some(100),
         budget: Some(50),
+        sink: None,
     };
     let child = parent.child(vec![10], Some(80), 20);
 
@@ -439,6 +440,30 @@ fn context_child_tightens_deadline_and_budget() {
 }
 
 #[test]
+fn context_propagates_sink_and_stays_empty_without_one() {
+    use thicket_interconnect::{Context, SinkRef};
+    // No sink: the context is still "empty" (so the envelope omits it) — the
+    // sink field can't bloat the wire when unused.
+    assert!(Context::default().is_empty());
+
+    let sink = SinkRef {
+        id: Id::from_root_public(&[9u8; 32]).unwrap(),
+        endpoint: "127.0.0.1:9000".into(),
+    };
+    let parent = Context {
+        trace_id: vec![1],
+        span_id: vec![2],
+        sink: Some(sink.clone()),
+        ..Default::default()
+    };
+    assert!(!parent.is_empty());
+    // the sink rides along to every child of the trace
+    let child = parent.child(vec![3], None, 0);
+    assert_eq!(child.sink, Some(sink));
+    assert_eq!(child.parent_span_id, vec![2]);
+}
+
+#[test]
 fn envelope_carries_context_through_sign_and_verify() {
     use thicket_interconnect::Context;
     let a = identity();
@@ -449,6 +474,7 @@ fn envelope_carries_context_through_sign_and_verify() {
         parent_span_id: vec![],
         deadline: Some(NOW + 5),
         budget: Some(1000),
+        sink: None,
     };
     let env = EnvelopePayload::request(a.id.clone(), b.id.clone(), "x")
         .with_context(ctx)

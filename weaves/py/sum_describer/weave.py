@@ -44,7 +44,7 @@ def _narrow(tool_grant, holder_key, capability):
     )
 
 
-def make_handler(local, dir_host, dir_port, dir_id, *, tool_grant=None, emitter=None):
+def make_handler(local, dir_host, dir_port, dir_id, *, tool_grant=None, sink=None, emitter=None):
     async def handler(conn, payload: dict) -> None:
         if payload.get("capability") != "describe_sum":
             await conn.respond_error(payload, "NotFound", "unknown capability")
@@ -52,8 +52,15 @@ def make_handler(local, dir_host, dir_port, dir_id, *, tool_grant=None, emitter=
         args = cbor.decode(payload["body"]) if payload.get("body") else {}
 
         # The weave's own span: this becomes the parent of every sub-call's span.
+        # The weave routes the trace to its chosen sink (override) when configured,
+        # else it inherits whatever sink the caller named — and either way the sink
+        # propagates to all descendants, so the whole subtree reports to one place.
         ctx = payload.get("context") or {}
-        weave_ctx = tracing.child_context(ctx, span_id=os.urandom(8))
+        weave_ctx = (
+            tracing.child_context(ctx, span_id=os.urandom(8), sink=sink)
+            if sink is not None
+            else tracing.child_context(ctx, span_id=os.urandom(8))
+        )
         span = emitter.span(weave_ctx, name="weave:describe_sum", kind="weave") if emitter else None
 
         async def body():
@@ -114,8 +121,8 @@ def make_handler(local, dir_host, dir_port, dir_id, *, tool_grant=None, emitter=
     return handler
 
 
-async def run(local, dir_host, dir_port, dir_id, *, host="127.0.0.1", tool_grant=None, ready=None):
-    emitter = tracing.SpanEmitter(local, dir_host, dir_port, dir_id)
+async def run(local, dir_host, dir_port, dir_id, *, host="127.0.0.1", tool_grant=None, sink=None, ready=None):
+    emitter = tracing.SpanEmitter(local)
     try:
         await run_fiber(
             local,
@@ -124,7 +131,9 @@ async def run(local, dir_host, dir_port, dir_id, *, host="127.0.0.1", tool_grant
             dir_id,
             kind="weave",
             capabilities=[record.capability("weave", "describe the sum of two numbers", tags=["compose"])],
-            handler=make_handler(local, dir_host, dir_port, dir_id, tool_grant=tool_grant, emitter=emitter),
+            handler=make_handler(
+                local, dir_host, dir_port, dir_id, tool_grant=tool_grant, sink=sink, emitter=emitter
+            ),
             host=host,
             ready=ready,
         )

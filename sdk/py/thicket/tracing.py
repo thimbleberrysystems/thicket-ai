@@ -18,9 +18,10 @@ import time
 
 from . import cbor
 from .conn import Conn
-from .directory import DirectoryClient
 
 REPORT = "collector.report"
+
+_UNSET = object()
 
 
 def now_s() -> int:
@@ -31,9 +32,14 @@ def now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def child_context(parent, *, span_id=None, local_deadline=None, spent=0) -> dict:
+def child_context(parent, *, span_id=None, local_deadline=None, spent=0, sink=_UNSET) -> dict:
     """Derive a downstream context: same trace, fresh span, parent linkage;
-    deadline only tightens (min), budget only debits. Mirrors Context::child."""
+    deadline only tightens (min), budget only debits. Mirrors Context::child.
+
+    The trace **sink** (where spans are reported) propagates from the parent
+    unchanged unless ``sink`` is given — passing ``sink={...}`` reroutes this
+    subtree (a weave overriding the sink for its children), ``sink=None`` stops
+    reporting below here."""
     parent = parent or {}
     ctx = {
         "trace_id": parent.get("trace_id") or os.urandom(16),
@@ -45,6 +51,9 @@ def child_context(parent, *, span_id=None, local_deadline=None, spent=0) -> dict
         ctx["deadline"] = min(deadlines)
     if parent.get("budget") is not None:
         ctx["budget"] = max(0, parent["budget"] - spent)
+    effective_sink = parent.get("sink") if sink is _UNSET else sink
+    if effective_sink is not None:
+        ctx["sink"] = effective_sink
     return ctx
 
 
@@ -61,44 +70,36 @@ def budget_exhausted(ctx) -> bool:
 
 
 class SpanEmitter:
-    """Self-reports spans to a collector discovered from the directory. Opt-in: if
-    no collector is registered the first lookup caches a no-op. One emitter per
-    fiber; reuse it across requests, ``close()`` on shutdown."""
+    """Self-reports each span to **the sink named in the context** — not a
+    directory-discovered one — so every fiber in a trace reports to the place the
+    initiator (a weave) chose, and the tree assembles coherently. Opt-in: no
+    ``sink`` in the context ⇒ a silent no-op. Connections are cached per sink id;
+    one emitter per fiber, ``close()`` on shutdown."""
 
-    def __init__(self, local, dir_host, dir_port, dir_id):
+    def __init__(self, local):
         self.local = local
-        self._dir = (dir_host, dir_port, dir_id)
-        self._conn = None
-        self._looked_up = False
+        self._conns: dict[bytes, Conn] = {}
 
-    async def _collector(self):
-        if self._looked_up:
-            return self._conn
-        self._looked_up = True
-        try:
-            host, port, dir_id = self._dir
-            dc = await DirectoryClient.connect(host, port, self.local, dir_id)
-            hits = await dc.search("trace collector", kind="collector", top_k=1)
-            await dc.close()
-            if hits:
-                rec = hits[0]["payload"]
-                h, p = rec["locators"][0]["endpoint"].split(":")
-                self._conn = await Conn.connect(h, int(p), self.local, expected_id=rec["id"])
-        except Exception:
-            self._conn = None
-        return self._conn
+    async def _sink_conn(self, sink):
+        sid = sink["id"]
+        conn = self._conns.get(sid)
+        if conn is None:
+            host, port = sink["endpoint"].split(":")
+            conn = await Conn.connect(host, int(port), self.local, expected_id=sid)
+            self._conns[sid] = conn
+        return conn
 
     @contextlib.asynccontextmanager
     async def span(self, ctx, *, name, kind, attrs=None):
-        """Time the wrapped work and report a self-span (span_id/parent from
-        ``ctx``). No-op if the trace has no id or no collector is reachable."""
+        """Time the wrapped work and report a self-span (span_id/parent/sink all
+        from ``ctx``). No-op when the context carries no trace id or no sink."""
         start = now_ms()
         try:
             yield
         finally:
             ctx = ctx or {}
-            conn = await self._collector()
-            if conn is not None and ctx.get("trace_id"):
+            sink = ctx.get("sink")
+            if sink and ctx.get("trace_id"):
                 span = {
                     "trace_id": ctx["trace_id"],
                     "span_id": ctx.get("span_id") or os.urandom(8),
@@ -111,11 +112,15 @@ class SpanEmitter:
                     "attrs": attrs or {},
                 }
                 try:
+                    conn = await self._sink_conn(sink)
                     await conn.call(REPORT, cbor.encode(span))
                 except Exception:
                     pass
 
     async def close(self):
-        if self._conn is not None:
-            await self._conn.close()
-            self._conn = None
+        for conn in self._conns.values():
+            try:
+                await conn.close()
+            except Exception:
+                pass
+        self._conns.clear()

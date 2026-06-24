@@ -11,7 +11,9 @@ pub mod grant;
 pub mod handshake;
 mod util;
 
-pub use envelope::{Context, EnvelopePayload, EnvelopeType, ErrorCode, ErrorInfo, SignedEnvelope};
+pub use envelope::{
+    Context, EnvelopePayload, EnvelopeType, ErrorCode, ErrorInfo, SignedEnvelope, SinkRef,
+};
 pub use error::{Error, Result};
 pub use grant::{Caveats, Grant, GrantLink};
 pub use handshake::{prove, verify_proof, Challenge, Proof};

@@ -31,8 +31,13 @@ are the *connection machinery a fiber uses*, not participants.
    the **wire spec + conformance vectors**. An SDK is an independent
    re-implementation, never a dependency on the Rust core.
 3. **Observability is self-reported.** A small context block (trace / deadline /
-   budget) rides in the envelope; fibers emit their own spans to an opt-in
-   collector. No proxy, no sniffing — preserves end-to-end encryption.
+   budget / **sink**) rides in the envelope; fibers emit their own spans to the
+   **sink named in the context**. No proxy, no sniffing — preserves end-to-end
+   encryption. *Which* sink is **woven**: the initiator (typically a weave) picks
+   it and it propagates with the trace, so the whole subtree reports to one place;
+   a nested weave may reroute its own subtree. The sink is just a fiber
+   (`kind: collector`); span *format* (native, OTLP, …) is that fiber's business,
+   never the framework's.
 4. **One responsibility per fiber; weaves compose.**
 5. **Mock before real**, and **same capability schema** for mock and real so they
    are drop-in interchangeable.
@@ -289,6 +294,35 @@ shape **over the wire** so independent directories federate.
 
 ---
 
+### Phase 8 — Trace routing: woven sinks
+Decide *how we trace*, independent of trace format. Tracing is two mechanisms:
+(1) **in-band propagation** — the context block carries `trace_id`/`span_id`/
+`parent_span_id` and is tightened each hop; (2) **self-reported emission** — each
+fiber emits its own span, no proxy. The open question was *where spans go*; the
+answer is **woven**: the context block carries an optional **sink** (the collector
+fiber's id + endpoint), the initiator/weave sets it, and it propagates so every
+hop reports to the same place — coherently, with no central hub.
+
+**Deliverables**
+- core/spec: optional `SinkRef {id, endpoint}` + `Context.sink`, propagated by
+  `Context::child` (omitted when absent — no wire bloat, vectors byte-stable).
+  Documented in `spec/thicket-wire.md`.
+- SDK `tracing`: `child_context` propagates/overrides/clears `sink`;
+  `SpanEmitter` reports to the **context's** sink (no directory lookup), caching a
+  connection per sink.
+- weaves: a weave routes its trace to a chosen sink (overriding/​inheriting), and
+  it propagates to all descendants; nesting reroutes per subtree.
+
+**Tests**
+- Rust: `Context` carries + propagates a sink; stays "empty" (wire-omitted) when
+  absent.
+- SDK unit: `child_context` inherits / overrides / clears the sink.
+- Integration: weave + tool + llm spans assemble into the weave tree **in the
+  sink the weave named**; with two sinks, the chosen one gets the whole trace and
+  the other gets nothing.
+
+---
+
 ## 6. Sequencing
 
 ```
@@ -303,6 +337,7 @@ Phase 4  Wave 2  real LLM (Ollama) + Memory
 Phase 5  Wave 3  Tool + first Weave
 Phase 6  Wave 4  Collector + profiler, Trigger, Router
 Phase 7  Federation  cross-directory discovery (no central hub)
+Phase 8  Trace routing  woven sinks (sink-in-context, self-reported)
 ```
 
 Phases 0–2 are the critical path; nothing real runs cross-language until the SDK
