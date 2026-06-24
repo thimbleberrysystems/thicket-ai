@@ -11,8 +11,14 @@ use tokio::net::TcpListener;
 
 #[tokio::main]
 async fn main() {
-    let root = RootKey::from_seed(&[8u8; 32]);
-    let working = WorkingKey::from_seed(&[108u8; 32]);
+    // Optional seed arg gives each instance a distinct identity, so several
+    // independent directories can run side by side (federation testing).
+    let seed = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse::<u8>().ok())
+        .unwrap_or(8);
+    let root = RootKey::from_seed(&[seed; 32]);
+    let working = WorkingKey::from_seed(&[seed.wrapping_add(100); 32]);
     let endorsement = root
         .endorse(&working.public(), 0, unix_now() + 1_000_000_000)
         .unwrap();

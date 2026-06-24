@@ -269,6 +269,26 @@ Observability and breadth.
 
 ---
 
+### Phase 7 — Federation: cross-directory discovery (no central hub)
+Make Principle #1 real on the wire: discovery must not depend on any single
+directory. The Rust `thicket-federation` crate already does scatter-gather
+search/resolve with dedupe + TTL caching **in-process**; Phase 7 exposes the same
+shape **over the wire** so independent directories federate.
+
+**Deliverables**
+- `directory_server` example: an optional seed arg so several directories can run
+  side by side with **distinct identities**.
+- `sdk/py/thicket/federation.py` — `FederatedDirectory`: fans search/resolve out
+  to N peer directories in parallel, merges results round-robin, dedupes by fiber
+  id, and **verifies every record** (a peer is a participant, not an authority).
+
+**Tests**
+- Distinct directories have distinct identities (no shared hub).
+- A fiber registered only in directory A and one only in directory B are *both*
+  resolvable and discoverable through a `FederatedDirectory` over [A, B].
+
+---
+
 ## 6. Sequencing
 
 ```
@@ -282,6 +302,7 @@ Phase 3  Wave 1  CLI + LLM fiber (stubbed model)
 Phase 4  Wave 2  real LLM (Ollama) + Memory
 Phase 5  Wave 3  Tool + first Weave
 Phase 6  Wave 4  Collector + profiler, Trigger, Router
+Phase 7  Federation  cross-directory discovery (no central hub)
 ```
 
 Phases 0–2 are the critical path; nothing real runs cross-language until the SDK
