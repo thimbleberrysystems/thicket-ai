@@ -125,25 +125,33 @@ checkpoint/resume pattern.
 
 ---
 
-## 4. Distributed parallelism (fan-out across machines)
-**Status:** Not started
+## 4. Python SDK: express the network's native concurrency  *(reframed)*
+**Status:** Not started — and smaller than first labelled.
 
-**Impact (high).** A strictly bigger claim than LangGraph's in-process async:
-true parallelism across machines/orgs. Also fixes a known correctness limit.
+**Reframe (important).** Distributed parallelism is **native**, not a missing
+feature: fibers are independent network participants, the wire carries concurrent
+in-flight calls, and the Rust `Conn` already multiplexes them (test:
+`many_concurrent_calls_are_multiplexed`). Fan-out to *different* fibers (with warm
+discovery) already runs truly in parallel today. This entry is just a **Python-SDK
+plumbing fix** so the client can fully express the concurrency the network already
+provides.
 
-**State today.** Python `Conn` is sequential — "send, read next frame", no
-correlation demux — so concurrent calls on one channel race. The **Rust** `Conn`
-already multiplexes by correlation (test: `many_concurrent_calls_are_multiplexed`).
-`Client`/`Context` are sequential-only with lazy-init races.
+**Impact (medium — corrected down from "high").**
 
-**What's needed.**
-- Port the correlation-demux into the Python `Conn` (a `pending` map keyed by
-  correlation + a reader task), matching the Rust design.
-- Lock the `Client` lazy init (directory connection, discovery cache, channel
-  cache).
-- Ship `ctx.gather_all([...])` / make `Client` concurrent-safe.
+**State today.** The Python `Conn` reads "the next frame" without correlation
+demux, and `Context`/`Client` share one directory connection + one channel per
+fiber. So the *only* thing that races is **one shared channel** under concurrency:
+(a) cold discovery over the shared directory connection, (b) two concurrent calls
+to the *same* fiber over its one cached channel.
 
-**Depends on:** nothing.
+**What's needed (client-side only).**
+- Port the Rust correlation-demux into the Python `Conn` (a reader task +
+  `pending`/`streams` maps keyed by correlation), so one channel multiplexes.
+- Lock the `Client` lazy init (directory conn + discovery/channel caches).
+- Ship a `gather_all([...])` convenience.
+
+**Depends on:** nothing. (Subsumes the "Python `Conn` is sequential" tech-debt
+item.)
 
 ---
 
@@ -246,17 +254,21 @@ multi-language/org weave demo.
 
 ---
 
-## Known technical debt (non-feature, surfaced during the build)
+## Known technical debt (addressing this first, in order)
 
-These aren't features but they gate the above — fold into the relevant gap.
+1. ⏳ **Python `Conn` concurrency** — correlation-demux + `Client` cache-lock +
+   `gather_all` (this *is* the reframed #4). Keystone: unlocks safe concurrent
+   fan-out and brings the Python `Conn` to parity with Rust.
+2. ⏳ **`Client` auto-retry** on a stale channel — it currently evicts and
+   re-raises; fine for per-request Contexts, rough for a long-lived Client.
+3. ⏳ **`trigger` → ergonomic API** — the only fiber still on the low-level API
+   (pub/sub subscribe lifecycle didn't fit the simple model).
+4. ⏳ **Negative-path coverage** — the Noise handshake; some Rust modules
+   (`directory/server`, `federation/peer`) sit ~70–75% line coverage.
+5. ⏳ **Persistence** — directory/registry/collector are in-memory. Needed for #5
+   (marketplace) and any production use. Bigger; do after the quick wins.
+6. ⏳ **Payment / metering / quota** — a primitive needed before a real
+   marketplace (feature-ish; lowest priority).
 
-- **Python `Conn` sequential** — folded into #4.
-- **No persistence anywhere** — directory/registry/collector are in-memory.
-  Needed for #5 (marketplace) and any production use.
-- **`trigger` on the low-level API** — the only fiber not on the ergonomic
-  layer (pub/sub subscribe lifecycle doesn't fit the simple model yet).
-- **`Client` has no auto-retry** on a stale channel — it evicts and re-raises;
-  fine for per-request Contexts, rougher for a long-lived Client.
-- **Thin negative-path coverage** on the Noise handshake; some Rust modules
-  (`directory/server`, `federation/peer`) sit ~70–75% line coverage.
-- **No payment / metering / quota** primitive — needed before a real marketplace.
+*(Plus, from gap 1: richer constraint matching — prefix/glob; and the
+spawn-ephemeral-sub-agent-fiber flow.)*

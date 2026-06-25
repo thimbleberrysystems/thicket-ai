@@ -85,10 +85,13 @@ class Client:
         self._dc = None  # cached DirectoryClient
         self._conns: dict[bytes, Conn] = {}  # fiber id -> reused channel
         self._disc: dict[tuple, tuple] = {}  # (kind, capability) -> (id, host, port)
+        self._lock = asyncio.Lock()  # serialize lazy creation under concurrency
 
     async def _directory(self):
         if self._dc is None:
-            self._dc = await DirectoryClient.connect(self._dir_cfg[0], self._dir_cfg[1], self._local, self._dir_cfg[2])
+            async with self._lock:  # double-checked: don't open two directory conns
+                if self._dc is None:
+                    self._dc = await DirectoryClient.connect(*self._dir_cfg[:2], self._local, self._dir_cfg[2])
         return self._dc
 
     async def search(self, kind, intent, *, top_k=10) -> list:
@@ -106,11 +109,23 @@ class Client:
             self._disc[key] = (rec["id"], host, int(port))
         return self._disc[key]
 
-    async def _channel(self, fiber_id, host, port):
+    def _live(self, fiber_id):
         conn = self._conns.get(fiber_id)
+        if conn is not None and conn.closed_event.is_set():
+            self._conns.pop(fiber_id, None)  # a cached channel that died — drop it
+            return None
+        return conn
+
+    async def _channel(self, fiber_id, host, port):
+        # Auto-recover a stale cached channel (e.g. the fiber restarted) by
+        # reconnecting *before* sending — safe, no double-execution.
+        conn = self._live(fiber_id)
         if conn is None:
-            conn = await Conn.connect(host, port, self._local, expected_id=fiber_id)
-            self._conns[fiber_id] = conn
+            async with self._lock:  # double-checked: one live channel per fiber
+                conn = self._live(fiber_id)
+                if conn is None:
+                    conn = await Conn.connect(host, port, self._local, expected_id=fiber_id)
+                    self._conns[fiber_id] = conn
         return conn
 
     def _evict(self, kind, capability, fiber_id):
@@ -150,6 +165,12 @@ class Client:
         if chunks and all(isinstance(c, str) for c in chunks):
             return "".join(chunks)
         return chunks
+
+    async def gather_all(self, *calls):
+        """Run several calls **concurrently** and return results in order — true
+        parallel fan-out across fibers/machines. Each call is
+        ``(kind, capability, args)``."""
+        return await asyncio.gather(*(self.call(k, cap, args) for (k, cap, args) in calls))
 
     async def close(self):
         for conn in self._conns.values():
@@ -245,6 +266,11 @@ class Context:
             kind, capability, args,
             context=tracing.child_context(self._ctx, spent=spent), auth=self._auth_for(capability),
         )
+
+    async def gather_all(self, *calls):
+        """Fan out several sub-calls **concurrently** (each parented to this
+        fiber's span); results in order. Each call is ``(kind, capability, args)``."""
+        return await asyncio.gather(*(self.call(k, cap, args) for (k, cap, args) in calls))
 
     async def aclose(self):
         await self._client.close()

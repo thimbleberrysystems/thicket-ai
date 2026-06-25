@@ -60,6 +60,65 @@ class ClientErgonomics(unittest.TestCase):
             proc.wait()
             proc.stdout.close()
 
+    def test_concurrent_calls_are_multiplexed(self):
+        proc, dir_id, host, port = self._directory()
+        try:
+
+            async def scenario():
+                ttask = await self._serve(dir_id, host, port)
+                async with Client(host, port, dir_id) as c:
+                    # 12 calls fired concurrently at the SAME fiber over one channel
+                    results = await asyncio.gather(
+                        *[c.call("tool", "calc.add", {"a": i, "b": i}) for i in range(12)]
+                    )
+                    channels = len(c._conns)  # all multiplexed over one cached channel
+                    pair = await c.gather_all(
+                        ("tool", "calc.add", {"a": 1, "b": 2}),
+                        ("tool", "calc.add", {"a": 3, "b": 4}),
+                    )
+                ttask.cancel()
+                try:
+                    await ttask
+                except asyncio.CancelledError:
+                    pass
+                return results, channels, pair
+
+            results, channels, pair = asyncio.run(asyncio.wait_for(scenario(), 30))
+            # correlation-demux keeps 12 concurrent responses correctly matched
+            self.assertEqual([r["result"] for r in results], [2 * i for i in range(12)])
+            self.assertEqual(channels, 1, "concurrent calls share one multiplexed channel")
+            self.assertEqual([p["result"] for p in pair], [3, 7])
+        finally:
+            proc.kill()
+            proc.wait()
+            proc.stdout.close()
+
+    def test_recovers_from_a_dropped_channel(self):
+        proc, dir_id, host, port = self._directory()
+        try:
+
+            async def scenario():
+                ttask = await self._serve(dir_id, host, port)
+                async with Client(host, port, dir_id) as c:
+                    r1 = await c.call("tool", "calc.add", {"a": 1, "b": 1})  # caches a channel
+                    fid = next(iter(c._conns))
+                    await c._conns[fid].close()  # the cached channel dies under us
+                    r2 = await c.call("tool", "calc.add", {"a": 2, "b": 2})  # transparently reconnects
+                ttask.cancel()
+                try:
+                    await ttask
+                except asyncio.CancelledError:
+                    pass
+                return r1, r2
+
+            r1, r2 = asyncio.run(asyncio.wait_for(scenario(), 30))
+            self.assertEqual(r1["result"], 2)
+            self.assertEqual(r2["result"], 4)
+        finally:
+            proc.kill()
+            proc.wait()
+            proc.stdout.close()
+
     def test_missing_fiber_raises_thicket_error(self):
         proc, dir_id, host, port = self._directory()
         try:

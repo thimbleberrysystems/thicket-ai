@@ -38,23 +38,22 @@ def make_handler(hub: _Hub):
             q: asyncio.Queue = asyncio.Queue()
             hub.subs.add(q)
             # End the subscription when the subscriber disconnects: race each event
-            # against EOF on the connection (the subscriber sends nothing more, so a
-            # completed read means the peer closed).
-            eof = asyncio.ensure_future(conn.reader.read(1))
+            # against the connection's closed signal.
+            closed = asyncio.ensure_future(conn.closed_event.wait())
             try:
                 seq = 0
                 await conn.stream_chunk(payload, seq, False, b"")  # ready marker
                 seq += 1
                 while True:
                     getter = asyncio.ensure_future(q.get())
-                    done, _ = await asyncio.wait({getter, eof}, return_when=asyncio.FIRST_COMPLETED)
-                    if eof in done:
+                    done, _ = await asyncio.wait({getter, closed}, return_when=asyncio.FIRST_COMPLETED)
+                    if closed in done:
                         getter.cancel()
                         break
                     await conn.stream_chunk(payload, seq, False, cbor.encode(getter.result()))
                     seq += 1
             finally:
-                eof.cancel()
+                closed.cancel()
                 hub.subs.discard(q)
         else:
             await conn.respond_error(payload, "NotFound", "unknown capability")
