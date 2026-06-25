@@ -26,13 +26,28 @@ Effort key: **S** ≈ days · **M** ≈ 1–2 weeks · **L** ≈ a month+.
 ---
 
 ## 1. Capability-scoped agent delegation + the safety demo  ⭐ do first
-**Status:** ✅ Done (core). `ctx.delegate(audience_pub, capabilities)` mints a
-strictly-narrower grant for a sub-agent; the `tool_fs` fiber (read/write/delete,
-grant-gated) is the resource; `apps/py/demo/delegation_demo.py` shows owner →
-agent → read-only sub-agent with the write attempt cryptographically DENIED;
-`tests/test_delegation.py` + a smoke test prove it. *Remaining (later): the
-spawn-a-sub-agent-fiber ergonomic flow (model b) and the LangGraph-adapter pairing
-(gap 2).*
+**Status:** ✅ Done + hardened. `ctx.delegate(audience_pub, capabilities,
+constraints=...)` mints a strictly-narrower grant; the grant-gated `tool_fs`
+fiber is the resource; `apps/py/demo/delegation_demo.py` shows owner → agent →
+read-only sub-agent with the write cryptographically DENIED.
+
+Review found and fixed real security gaps (all tested):
+- **Revocation parity** — Python `grant.verify` ignored revocation entirely while
+  Rust checked it. Both now reject a grant if **any** key in the chain (issuer or
+  audience) is revoked, so a resource can kill its own key *or* a delegated
+  sub-grant. (`revocations=` threads through `Fiber.run`.)
+- **Cross-language verification** (not just encoding): forward —
+  `grant_gated_server` (Rust) verifies a **Python-minted** grant
+  (`test_grant_interop`); reverse — Python verifies the **Rust-minted** grant
+  vector (`test_conformance`).
+- **Constraint enforcement** — caveat constraints (e.g. `{"path": ...}`) are now
+  enforceable: `grant.satisfies(grant, attributes)` + `ctx.grant`; `tool_fs`
+  enforces path scoping; a path-constrained delegation test proves it.
+- **Stronger test** — reads back to prove a denied write left state untouched.
+
+*Remaining (later, logged below): richer constraint matching (prefix/glob), and
+the spawn-an-ephemeral-sub-agent-fiber flow (model b). Pairs with gap 2
+(LangGraph adapter).*
 
 **Impact (highest).** This is the differentiating, *fundable* thesis and the
 industry's scariest unsolved problem: letting agents act and delegate without

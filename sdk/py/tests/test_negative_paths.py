@@ -30,7 +30,7 @@ class GrantVerifyRejections(unittest.TestCase):
             grant.caveats(["x"], self.now + 1000),
         )
 
-    def _verify(self, g, caller=None, cap="x", now=None, root=None, endo=None):
+    def _verify(self, g, caller=None, cap="x", now=None, root=None, endo=None, revocations=None):
         return grant.verify(
             g,
             root if root is not None else self.target.root_public_key,
@@ -38,10 +38,20 @@ class GrantVerifyRejections(unittest.TestCase):
             caller if caller is not None else self.alice.public(),
             cap,
             now if now is not None else self.now,
+            revocations=revocations,
         )
 
     def test_valid_grant_verifies(self):
         self.assertTrue(self._verify(self.g))
+
+    def test_revoked_chain_key_rejected(self):
+        self.assertTrue(self._verify(self.g))  # valid with no revocations
+        # revoking the issuing (head) key kills the grant
+        self.assertFalse(self._verify(self.g, revocations={self.target.working.public()}))
+        # revoking the audience kills a delegated grant
+        self.assertFalse(self._verify(self.g, revocations={self.alice.public()}))
+        # an unrelated revoked key doesn't affect it
+        self.assertTrue(self._verify(self.g, revocations={WorkingKey.generate().public()}))
 
     def test_wrong_caller_rejected(self):
         self.assertFalse(self._verify(self.g, caller=WorkingKey.generate().public()))

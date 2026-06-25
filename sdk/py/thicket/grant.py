@@ -73,6 +73,19 @@ def _narrows(child: dict, parent: dict) -> bool:
     return True
 
 
+def satisfies(grant: dict, attributes: dict) -> bool:
+    """Resource-side constraint check: True if every constraint in the grant's
+    effective (last-link, tightest) caveats is matched by ``attributes`` (exact
+    string match). A grant with no constraints is satisfied by anything. The
+    resource decides which request attributes to supply (e.g. ``{"path": ...}``).
+    """
+    links = grant.get("links") if grant else None
+    if not links:
+        return True
+    constraints = links[-1]["caveats"].get("constraints") or {}
+    return all(str(attributes.get(k)) == v for k, v in constraints.items())
+
+
 def _endorsed(root_pub: bytes, target_id: bytes, endorsements, working_pub: bytes, now: int) -> bool:
     if target_id != crypto.sha256(root_pub):
         return False
@@ -91,9 +104,23 @@ def _endorsed(root_pub: bytes, target_id: bytes, endorsements, working_pub: byte
     return endo["not_before"] <= now <= endo["not_after"]
 
 
-def verify(grant: dict, target_root_pub: bytes, target_endorsements, caller_pub: bytes, capability: str, now: int) -> bool:
+def verify(
+    grant: dict,
+    target_root_pub: bytes,
+    target_endorsements,
+    caller_pub: bytes,
+    capability: str,
+    now: int,
+    revocations=None,
+) -> bool:
     """Verify, from the target's view, that `grant` authorizes `caller_pub` to
-    invoke `capability` at `now` (chain links, narrowing, expiry, audience)."""
+    invoke `capability` at `now` (chain links, narrowing, expiry, audience).
+
+    `revocations` is the resource's set of revoked working-key public keys; the
+    grant is rejected if **any** key in the chain (issuer or audience) is revoked
+    — so a resource can kill both its own issuing key and a delegated sub-grant.
+    """
+    revoked = revocations or ()
     links = grant.get("links") or []
     if not links:
         return False
@@ -102,6 +129,8 @@ def verify(grant: dict, target_root_pub: bytes, target_endorsements, caller_pub:
     prev = b""
     parent = None
     for idx, link in enumerate(links):
+        if link["issuer_pub"] in revoked or link["audience_pub"] in revoked:
+            return False  # a revoked key appears in the chain
         if idx == 0:
             if not _endorsed(target_root_pub, grant["target"], target_endorsements, link["issuer_pub"], now):
                 return False

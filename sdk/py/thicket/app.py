@@ -175,7 +175,7 @@ class Context:
     (``call`` / ``gather`` / ``search``) with the trace context propagated and any
     held grant attenuated automatically."""
 
-    def __init__(self, local, directory, self_ctx, *, tool_grant=None, config=None):
+    def __init__(self, local, directory, self_ctx, *, tool_grant=None, grant=None, config=None):
         self._local = local
         self._client = Client(directory[0], directory[1], directory[2], local=local)
         self._ctx = self_ctx  # this fiber's span context — the parent of sub-calls
@@ -183,6 +183,7 @@ class Context:
         # NB: `config or {}` would replace a shared (but empty) dict with a fresh
         # one each call, breaking stateful fibers — identity-check None instead.
         self.config = {} if config is None else config
+        self.grant = grant  # the grant the caller presented (for constraint checks)
         self.trace_id = self_ctx.get("trace_id")
         self.deadline = self_ctx.get("deadline")
         self.budget = self_ctx.get("budget")
@@ -202,11 +203,13 @@ class Context:
             grant.caveats([capability], last["not_after"], last.get("constraints")),
         )
 
-    def delegate(self, audience_pub, capabilities, *, not_after=None):
+    def delegate(self, audience_pub, capabilities, *, not_after=None, constraints=None):
         """Mint a **strictly narrower** grant for another fiber (a sub-agent) to
-        act on this fiber's behalf — fewer capabilities, never a later expiry. The
-        sub-agent is then cryptographically incapable of exceeding it; the resource
-        verifies the chain back to its own key on every call.
+        act on this fiber's behalf — fewer capabilities, never a later expiry, and
+        optionally tighter ``constraints`` (e.g. ``{"path": "notes"}``) that the
+        resource enforces. The sub-agent is then cryptographically incapable of
+        exceeding it; the resource verifies the chain back to its own key on every
+        call.
 
         Raises ``ThicketError`` if this fiber holds no grant, or if ``capabilities``
         isn't a subset of what it holds — you cannot delegate authority you lack.
@@ -215,10 +218,13 @@ class Context:
             raise ThicketError("Unauthorized", "this fiber holds no grant to delegate")
         last = self._tool_grant["links"][-1]["caveats"]
         expiry = last["not_after"] if not_after is None else min(not_after, last["not_after"])
+        merged = dict(last.get("constraints") or {})  # keep parent constraints…
+        if constraints:
+            merged.update(constraints)  # …and tighten with new ones
         try:
             return grant.attenuate(
                 self._tool_grant, self._local.working, audience_pub,
-                grant.caveats(capabilities, expiry, last.get("constraints")),
+                grant.caveats(capabilities, expiry, merged),
             )
         except ValueError as e:
             raise ThicketError("Unauthorized", f"cannot delegate authority you don't hold ({e})")
@@ -275,7 +281,7 @@ class Fiber:
             for cap, c in self._caps.items()
         ]
 
-    def _handler(self, local, directory, emitter, *, sink, tool_grant, require_grant, config):
+    def _handler(self, local, directory, emitter, *, sink, tool_grant, require_grant, revocations, config):
         async def handler(conn, payload):
             cap = payload.get("capability")
             entry = self._caps.get(cap)
@@ -293,7 +299,7 @@ class Fiber:
                 auth = payload.get("auth")
                 ok = auth is not None and grant.verify(
                     auth, local.root_public_key, local.endorsements,
-                    conn.peer["working_pub"], cap, unix_now(),
+                    conn.peer["working_pub"], cap, unix_now(), revocations=revocations,
                 )
                 if not ok:
                     await conn.respond_error(payload, "Unauthorized", "valid grant required")
@@ -304,7 +310,7 @@ class Fiber:
             self_ctx = dict(env)
             if sink is not None:
                 self_ctx["sink"] = sink
-            ctx = Context(local, directory, self_ctx, tool_grant=tool_grant, config=config)
+            ctx = Context(local, directory, self_ctx, tool_grant=tool_grant, grant=payload.get("auth"), config=config)
             call_args = (_decode(payload.get("body")), ctx) if entry.takes_ctx else (_decode(payload.get("body")),)
             span = emitter.span(self_ctx, name=f"{self.kind}:{cap}", kind=self.kind) if emitter else contextlib.nullcontext()
             try:
@@ -336,10 +342,11 @@ class Fiber:
             await conn.respond(payload, b"")
 
     async def run(self, local, dir_host, dir_port, dir_id, *, host="127.0.0.1",
-                  sink=None, tool_grant=None, require_grant=False, ready=None, **config):
+                  sink=None, tool_grant=None, require_grant=False, revocations=None, ready=None, **config):
         """Serve every declared capability, register with the directory, and run
-        until cancelled. ``**config`` is passed through to handlers as
-        ``ctx.config`` (e.g. an LLM fiber's model backend)."""
+        until cancelled. ``revocations`` is this resource's set of revoked working
+        keys (grants involving any of them are rejected). ``**config`` is passed
+        through to handlers as ``ctx.config`` (e.g. an LLM fiber's model backend)."""
         directory = (dir_host, dir_port, dir_id)
         emitter = tracing.SpanEmitter(local)
         try:
@@ -349,7 +356,8 @@ class Fiber:
                 capabilities=self._capabilities(),
                 handler=self._handler(
                     local, directory, emitter,
-                    sink=sink, tool_grant=tool_grant, require_grant=require_grant, config=config,
+                    sink=sink, tool_grant=tool_grant, require_grant=require_grant,
+                    revocations=revocations, config=config,
                 ),
                 host=host, ready=ready,
             )

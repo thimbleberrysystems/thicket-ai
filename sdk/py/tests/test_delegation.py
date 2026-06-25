@@ -87,6 +87,8 @@ class Delegation(unittest.TestCase):
                         await sc.call("tool", "fs.delete", {"path": "notes"}, auth=g_sub)
                     except ThicketError as e:
                         results["sub_delete"] = e.code
+                    # read back: the denied write must have left the file untouched
+                    results["sub_reread"] = await sc.call("tool", "fs.read", {"path": "notes"}, auth=g_sub)
 
                 await _stop(ftask)
                 return results
@@ -100,6 +102,47 @@ class Delegation(unittest.TestCase):
             # the agent has write (it was granted it) but never had delete
             self.assertEqual(r["agent_write"]["ok"], True)
             self.assertEqual(r["agent_delete"], "Unauthorized")
+            # the denied write left the file untouched — not merely an error code
+            self.assertEqual(r["sub_reread"]["content"], "hi")
+        finally:
+            proc.kill()
+            proc.wait()
+            proc.stdout.close()
+
+    def test_path_constrained_delegation_is_enforced(self):
+        proc, dir_id, host, port = self._directory()
+        try:
+
+            async def scenario():
+                owner = LocalIdentity.from_root(RootKey.generate())
+                ftask, _ = await self._serve_fs(owner, dir_id, host, port)
+                far = unix_now() + 3600
+
+                agent = LocalIdentity.from_root(RootKey.generate())
+                g_agent = grant.issue(owner.id, owner.working, agent.working.public(),
+                                      grant.caveats(["fs.read", "fs.write"], far))
+                async with Client(host, port, dir_id, local=agent) as ac:
+                    await ac.call("tool", "fs.write", {"path": "allowed", "content": "ok"}, auth=g_agent)
+                    await ac.call("tool", "fs.write", {"path": "other", "content": "nope"}, auth=g_agent)
+
+                # delegate read-only AND scoped to a single path
+                subagent = LocalIdentity.from_root(RootKey.generate())
+                actx = Context(agent, (host, port, dir_id), {}, tool_grant=g_agent)
+                g_sub = actx.delegate(subagent.working.public(), ["fs.read"], constraints={"path": "allowed"})
+
+                res = {}
+                async with Client(host, port, dir_id, local=subagent) as sc:
+                    res["allowed"] = await sc.call("tool", "fs.read", {"path": "allowed"}, auth=g_sub)
+                    try:
+                        await sc.call("tool", "fs.read", {"path": "other"}, auth=g_sub)
+                    except ThicketError as e:
+                        res["other"] = e.code
+                await _stop(ftask)
+                return res
+
+            res = asyncio.run(asyncio.wait_for(scenario(), 30))
+            self.assertEqual(res["allowed"]["content"], "ok")   # permitted path reads
+            self.assertEqual(res["other"], "Unauthorized")       # other path blocked by the constraint
         finally:
             proc.kill()
             proc.wait()
@@ -120,6 +163,14 @@ class Delegation(unittest.TestCase):
         # delegating something not held is refused — you can't grant what you lack
         with self.assertRaises(ThicketError):
             ctx.delegate(sub.working.public(), ["fs.delete"])
+
+    def test_satisfies_constraints_semantics(self):
+        self.assertTrue(grant.satisfies(None, {"path": "x"}))  # no grant -> vacuously true
+        self.assertTrue(grant.satisfies({"links": [{"caveats": {"constraints": {}}}]}, {"path": "x"}))
+        g = {"links": [{"caveats": {"constraints": {"path": "notes"}}}]}
+        self.assertTrue(grant.satisfies(g, {"path": "notes"}))
+        self.assertFalse(grant.satisfies(g, {"path": "other"}))
+        self.assertFalse(grant.satisfies(g, {}))  # missing attribute -> not satisfied
 
     def test_delegate_without_a_grant_raises(self):
         agent = LocalIdentity.from_root(RootKey.generate())

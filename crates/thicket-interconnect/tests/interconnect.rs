@@ -35,6 +35,40 @@ fn identity() -> Identity {
 // ---------- grants ----------
 
 #[test]
+fn grant_rejects_revoked_chain_key() {
+    let target = identity();
+    let alice = identity();
+    let bob = identity();
+    let g = Grant::issue(
+        target.id.clone(),
+        &target.working,
+        &alice.working.public(),
+        Caveats::new(["read", "write"], NOW + 1000),
+    )
+    .unwrap();
+    // Alice delegates read-only to Bob.
+    let sub = g
+        .attenuate(&alice.working, &bob.working.public(), Caveats::new(["read"], NOW + 500))
+        .unwrap();
+
+    let ok = |revs: &RevocationSet| {
+        sub.verify(&target.root.public(), &target.endorsements, &bob.working.public(), "read", NOW, revs)
+    };
+
+    ok(&RevocationSet::new()).expect("valid with no revocations");
+
+    // Revoking the issuing (head) key kills the whole chain.
+    let mut r_head = RevocationSet::new();
+    r_head.revoke_key(&target.working.public());
+    assert!(ok(&r_head).is_err(), "revoked head key must reject");
+
+    // Revoking the delegated audience kills the sub-grant.
+    let mut r_sub = RevocationSet::new();
+    r_sub.revoke_key(&bob.working.public());
+    assert!(ok(&r_sub).is_err(), "revoked sub-agent key must reject");
+}
+
+#[test]
 fn grant_authorizes_only_listed_capabilities() {
     let target = identity();
     let alice = identity();

@@ -102,6 +102,22 @@ class GrantConformance(unittest.TestCase):
         # Ed25519 is deterministic, so the re-signed grant must be byte-identical.
         self.assertEqual(cbor.encode(_vector_grant()), _read("grant.cbor"))
 
+    def test_verifies_rust_minted_grant(self):
+        # Cross-language *verification* (not just encoding): a grant minted by the
+        # Rust core is decoded and verified by the Python SDK, which must accept it
+        # and reject the obvious over-reaches identically.
+        g = cbor.decode(_read("grant.cbor"))
+        root = crypto.RootKey.from_seed(bytes([1]) * 32)
+        working = crypto.WorkingKey.from_seed(bytes([101]) * 32)
+        audience = crypto.WorkingKey.from_seed(bytes([104]) * 32)
+        endo = root.endorse(working.public(), 0, 2_000_000)  # matches the vector's window
+        now = 1_000_000
+
+        self.assertTrue(grant.verify(g, root.public(), [endo], audience.public(), "generate", now))
+        self.assertFalse(grant.verify(g, root.public(), [endo], audience.public(), "delete", now))
+        self.assertFalse(grant.verify(g, root.public(), [endo], crypto.WorkingKey.generate().public(), "generate", now))
+        self.assertFalse(grant.verify(g, root.public(), [endo], audience.public(), "generate", 2_000_001))
+
     def test_attenuation_narrows(self):
         g = _vector_grant()
         holder = crypto.WorkingKey.from_seed(bytes([104]) * 32)

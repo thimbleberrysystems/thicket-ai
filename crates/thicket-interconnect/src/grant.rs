@@ -188,6 +188,11 @@ impl Grant {
         let mut prev: &[u8] = &[];
         let mut parent: Option<&Caveats> = None;
         for (i, link) in self.links.iter().enumerate() {
+            // Reject if any key in the chain (issuer or audience) is revoked — so a
+            // resource can kill its own issuing key or a delegated sub-grant.
+            if revocations.is_revoked(&link.issuer_pub) || revocations.is_revoked(&link.audience_pub) {
+                return Err(thicket_core::Error::Revoked.into());
+            }
             if i == 0 {
                 // The head must be issued by a valid working key of the target.
                 verify_working_key(
