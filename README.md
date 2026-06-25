@@ -121,6 +121,34 @@ which is the whole point: **a protocol people will actually use.**
 
 ---
 
+## Authority you can prove
+
+The thing no in-process framework can do: an agent delegates **strictly narrower**
+authority to a sub-agent — enforced by cryptography, not a prompt.
+
+```text
+$ python apps/py/demo/delegation_demo.py
+owner  → agent     : granted [fs.read, fs.write]
+agent  → sub-agent : delegated [fs.read]  (read-only)
+agent  writes secret.txt     → ok (agent has write)
+sub-agent reads secret.txt   → ok: 'launch codes'
+sub-agent writes secret.txt  → DENIED (Unauthorized) — cryptographically blocked
+```
+
+The sub-agent **cannot** write — no matter what its prompt says or what a
+prompt-injection tells it — because the only authority it holds is a read-only
+grant, and the resource verifies that grant's chain back to the owner's key on
+every call. The whole delegation is one line:
+
+```python
+readonly = ctx.delegate(sub_agent_pubkey, ["fs.read"])   # can only narrow, never widen
+```
+
+This is the unsolved problem gating agents in production — *letting them act and
+delegate without unbounded authority* — and it falls out of the protocol.
+
+---
+
 ## How is this different?
 
 |                       | Agent frameworks<br/>(LangChain, CrewAI) | MCP | A2A | **Thicket** |

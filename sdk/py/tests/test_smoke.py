@@ -18,10 +18,10 @@ REPO = os.path.join(HERE, "..", "..", "..")
 DIR_BIN = os.path.join(REPO, "target", "debug", "examples", "directory_server")
 for _p in ("apps/py/demo", "fibers/py/llm", "fibers/py/tool_calc", "fibers/py/memory",
            "fibers/py/collector", "fibers/py/trigger", "fibers/py/router",
-           "weaves/py/sum_describer"):
+           "fibers/py/tool_fs", "weaves/py/sum_describer"):
     sys.path.insert(0, os.path.join(REPO, *_p.split("/")))
 
-FIBER_MODULES = ["llm", "calc", "memory", "collector", "trigger", "router", "weave"]
+FIBER_MODULES = ["llm", "calc", "memory", "collector", "trigger", "router", "fs", "weave"]
 
 
 class Launchable(unittest.TestCase):
@@ -67,6 +67,14 @@ class EndToEnd(unittest.TestCase):
         out = asyncio.run(asyncio.wait_for(run_demo.demo(2, 3), 40))
         self.assertEqual(out["sum"], 5)
         self.assertIn("The sum is 5", out["description"])
+
+    def test_delegation_demo_blocks_overreach(self):
+        import delegation_demo
+
+        lines = asyncio.run(asyncio.wait_for(delegation_demo.demo(), 40))
+        self.assertTrue(any("DENIED" in ln for ln in lines), lines)
+        self.assertFalse(any("ALLOWED" in ln for ln in lines), lines)
+        self.assertTrue(any("launch codes" in ln for ln in lines), lines)  # read-only read worked
 
 
 if __name__ == "__main__":

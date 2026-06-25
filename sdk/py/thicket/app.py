@@ -202,6 +202,27 @@ class Context:
             grant.caveats([capability], last["not_after"], last.get("constraints")),
         )
 
+    def delegate(self, audience_pub, capabilities, *, not_after=None):
+        """Mint a **strictly narrower** grant for another fiber (a sub-agent) to
+        act on this fiber's behalf — fewer capabilities, never a later expiry. The
+        sub-agent is then cryptographically incapable of exceeding it; the resource
+        verifies the chain back to its own key on every call.
+
+        Raises ``ThicketError`` if this fiber holds no grant, or if ``capabilities``
+        isn't a subset of what it holds — you cannot delegate authority you lack.
+        """
+        if self._tool_grant is None:
+            raise ThicketError("Unauthorized", "this fiber holds no grant to delegate")
+        last = self._tool_grant["links"][-1]["caveats"]
+        expiry = last["not_after"] if not_after is None else min(not_after, last["not_after"])
+        try:
+            return grant.attenuate(
+                self._tool_grant, self._local.working, audience_pub,
+                grant.caveats(capabilities, expiry, last.get("constraints")),
+            )
+        except ValueError as e:
+            raise ThicketError("Unauthorized", f"cannot delegate authority you don't hold ({e})")
+
     async def call(self, kind, capability, args=None, *, spent=1):
         """Discover and invoke a ``kind`` fiber, with this call parented to the
         fiber's span and any held grant attenuated to ``capability``."""
