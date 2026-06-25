@@ -4,8 +4,9 @@ Shares no code with the Rust core; conformance is proven against
 ``spec/vectors/``.
 """
 
-from . import cbor, crypto, directory, envelope, federation, grant, identity, record, secure, server, tracing
+from . import cbor, crypto, directory, envelope, federation, grant, identity, record, secure, server, store, tracing
 from .app import Client, Context, Fiber, ThicketError
+from .store import FileStore
 from .conn import Conn
 from .directory import DirectoryClient
 from .federation import FederatedDirectory
@@ -40,6 +41,8 @@ __all__ = [
     "Client",
     "Context",
     "ThicketError",
+    "FileStore",
+    "store",
     "LocalIdentity",
     "serve",
     "unix_now",

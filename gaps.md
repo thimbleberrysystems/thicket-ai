@@ -254,21 +254,26 @@ multi-language/org weave demo.
 
 ---
 
-## Known technical debt (addressing this first, in order)
+## Known technical debt
 
-1. ⏳ **Python `Conn` concurrency** — correlation-demux + `Client` cache-lock +
-   `gather_all` (this *is* the reframed #4). Keystone: unlocks safe concurrent
-   fan-out and brings the Python `Conn` to parity with Rust.
-2. ⏳ **`Client` auto-retry** on a stale channel — it currently evicts and
-   re-raises; fine for per-request Contexts, rough for a long-lived Client.
-3. ⏳ **`trigger` → ergonomic API** — the only fiber still on the low-level API
-   (pub/sub subscribe lifecycle didn't fit the simple model).
-4. ⏳ **Negative-path coverage** — the Noise handshake; some Rust modules
-   (`directory/server`, `federation/peer`) sit ~70–75% line coverage.
-5. ⏳ **Persistence** — directory/registry/collector are in-memory. Needed for #5
-   (marketplace) and any production use. Bigger; do after the quick wins.
-6. ⏳ **Payment / metering / quota** — a primitive needed before a real
-   marketplace (feature-ish; lowest priority).
+1. ✅ **Python `Conn` concurrency** — reader-task correlation-demux + `Client`
+   double-checked cache-lock + `gather_all`. Concurrent fan-out is now safe and at
+   parity with Rust (test: 12 calls multiplexed over one channel).
+2. ✅ **`Client` auto-recovery** — `_channel` is liveness-aware: a dead cached
+   channel is replaced *before* sending (safe, no double-execution); tested.
+3. ✅ **`trigger` → ergonomic API** — now a normal `Fiber` (async-generator
+   subscribe + emit); the SDK's `_stream` was reworked to deliver each chunk
+   immediately, send a terminal marker on exhaustion, and cancel on disconnect.
+4. ✅ **Negative-path coverage** — all Noise handshake-proof rejection branches
+   are unit-tested (id/endorsement/signature/static-binding/expiry). *(Remaining:
+   the Rust `directory/server` + `federation/peer` ~70% is mostly Debug/glue, not
+   logic — left as-is.)*
+5. ✅ **Persistence** — `thicket.FileStore` (CBOR-backed, atomic save); the memory
+   fiber persists with `run(persist="<path>")` and survives restart (tested). The
+   Rust directory/registry persistence is a separate, larger task → **#5 gap**.
+6. ✅ **Metering / quota** — a capability declares `@handles(..., cost=N)`; the SDK
+   rejects calls whose context budget is below the cost with `QuotaExceeded`.
+   (Payment rails for the marketplace remain a #5-gap feature.)
 
 *(Plus, from gap 1: richer constraint matching — prefix/glob; and the
 spawn-ephemeral-sub-agent-fiber flow.)*

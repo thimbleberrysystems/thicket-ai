@@ -1,26 +1,37 @@
 """Memory fiber: conversation memory keyed by a **session reference** — callers
-pass a session id, not the whole history. State lives in ``ctx.config`` so each
-running instance is isolated."""
+pass a session id, not the whole history. State is per-instance; pass
+``run(persist="<path>")`` to make it durable across restarts."""
 
 from thicket import Conn, Fiber, cbor
+from thicket.store import FileStore
 
 memory = Fiber(kind="memory")
 
 
+def _store(ctx) -> FileStore:
+    s = ctx.config.get("_store")
+    if s is None:
+        s = FileStore(ctx.config.get("persist"))  # None -> in-memory
+        ctx.config["_store"] = s
+    return s
+
+
 @memory.handles("memory.append", "append a message to a session", tags=["memory"])
 async def append(req, ctx):
-    ctx.config.setdefault("store", {}).setdefault(req["session"], []).append(req["message"])
+    s = _store(ctx)
+    s.data.setdefault(req["session"], []).append(req["message"])
+    s.save()
     return {"ok": True}
 
 
 @memory.handles("memory.materialize", "all messages in a session")
 async def materialize(req, ctx):
-    return {"messages": ctx.config.setdefault("store", {}).get(req["session"], [])}
+    return {"messages": _store(ctx).data.get(req["session"], [])}
 
 
 @memory.handles("memory.retrieve", "messages in a session matching a query")
 async def retrieve(req, ctx):
-    msgs = ctx.config.setdefault("store", {}).get(req["session"], [])
+    msgs = _store(ctx).data.get(req["session"], [])
     q = (req.get("query") or "").lower()
     return {"messages": [m for m in msgs if q in str(m.get("content", "")).lower()] if q else list(msgs)}
 

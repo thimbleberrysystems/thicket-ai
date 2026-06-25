@@ -277,13 +277,14 @@ class Context:
 
 
 class _Cap:
-    __slots__ = ("fn", "description", "tags", "require_grant", "takes_ctx", "is_stream")
+    __slots__ = ("fn", "description", "tags", "require_grant", "cost", "takes_ctx", "is_stream")
 
-    def __init__(self, fn, description, tags, require_grant):
+    def __init__(self, fn, description, tags, require_grant, cost):
         self.fn = fn
         self.description = description
         self.tags = tags
         self.require_grant = require_grant
+        self.cost = cost
         self.takes_ctx = len(inspect.signature(fn).parameters) >= 2
         self.is_stream = inspect.isasyncgenfunction(fn)
 
@@ -296,9 +297,13 @@ class Fiber:
         self.kind = kind
         self._caps: dict[str, _Cap] = {}
 
-    def handles(self, capability, description="", *, tags=None, require_grant=False):
+    def handles(self, capability, description="", *, tags=None, require_grant=False, cost=0):
+        """Declare a capability. ``cost`` (metering/quota) is the minimum budget a
+        caller must carry in its context to invoke it — calls with less are
+        rejected with ``QuotaExceeded``."""
+
         def deco(fn):
-            self._caps[capability] = _Cap(fn, description, list(tags or []), require_grant)
+            self._caps[capability] = _Cap(fn, description, list(tags or []), require_grant, cost)
             return fn
 
         return deco
@@ -322,6 +327,11 @@ class Fiber:
                 return
             if tracing.budget_exhausted(env):
                 await conn.respond_error(payload, "BudgetExhausted", "no budget remaining")
+                return
+            if entry.cost and env.get("budget") is not None and env["budget"] < entry.cost:
+                await conn.respond_error(
+                    payload, "QuotaExceeded", f"budget {env['budget']} < cost {entry.cost} for {cap!r}"
+                )
                 return
             verified_grant = None
             if entry.require_grant or require_grant:
@@ -360,16 +370,28 @@ class Fiber:
 
     @staticmethod
     async def _stream(conn, payload, agen):
-        seq, prev, have = 0, None, False
-        async for chunk in agen:
-            if have:
-                await conn.stream_chunk(payload, seq, False, _encode(prev))
+        """Stream an async generator: each yielded value is sent immediately (so a
+        pub/sub stream delivers in real time), a terminal `stream_end` marker is
+        sent when the generator exhausts, and the whole thing is cancelled if the
+        subscriber disconnects (so an infinite stream ends cleanly)."""
+
+        async def pump():
+            seq = 0
+            async for chunk in agen:
+                await conn.stream_chunk(payload, seq, False, _encode(chunk))
                 seq += 1
-            prev, have = chunk, True
-        if have:
-            await conn.stream_chunk(payload, seq, True, _encode(prev))
-        else:
-            await conn.respond(payload, b"")
+            if not conn.closed_event.is_set():
+                await conn.stream_chunk(payload, seq, True, b"")  # end-of-stream
+
+        pump_task = asyncio.ensure_future(pump())
+        closed = asyncio.ensure_future(conn.closed_event.wait())
+        _, pending = await asyncio.wait({pump_task, closed}, return_when=asyncio.FIRST_COMPLETED)
+        for t in pending:
+            t.cancel()
+        with contextlib.suppress(BaseException):
+            await pump_task
+        with contextlib.suppress(BaseException):
+            await agen.aclose()
 
     async def run(self, local, dir_host, dir_port, dir_id, *, host="127.0.0.1",
                   sink=None, tool_grant=None, require_grant=False, revocations=None, ready=None, **config):

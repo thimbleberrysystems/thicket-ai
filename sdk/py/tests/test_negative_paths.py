@@ -4,6 +4,7 @@ malformed CBOR, the framing size guard, and connecting to the wrong peer."""
 
 import asyncio
 import copy
+import os
 import unittest
 
 from thicket import (
@@ -14,6 +15,7 @@ from thicket import (
     cbor,
     grant,
     record,
+    secure,
     serve,
     unix_now,
 )
@@ -246,6 +248,50 @@ class ServerResilience(unittest.TestCase):
             return resp["payload"]["body"]
 
         self.assertEqual(asyncio.run(scenario()), b"ok")
+
+
+class HandshakeProofRejections(unittest.TestCase):
+    """The identity-binding proof exchanged during the Noise handshake must reject
+    every form of forgery (verified as a pure function)."""
+
+    def setUp(self):
+        self.local = LocalIdentity.from_root(RootKey.generate())
+        self.static = os.urandom(32)
+        self.now = unix_now()
+        self.proof = cbor.decode(secure.make_proof(self.local, self.static))
+
+    def test_valid_proof_verifies(self):
+        peer = secure.verify_proof(self.proof, self.static, self.now)
+        self.assertEqual(peer["id"], self.local.id)
+
+    def test_id_not_matching_root_rejected(self):
+        bad = {**self.proof, "id": b"\x00" * 32}
+        with self.assertRaises(ValueError):
+            secure.verify_proof(bad, self.static, self.now)
+
+    def test_missing_endorsement_rejected(self):
+        bad = {**self.proof, "endorsements": []}
+        with self.assertRaises(ValueError):
+            secure.verify_proof(bad, self.static, self.now)
+
+    def test_forged_endorsement_signature_rejected(self):
+        bad = copy.deepcopy(self.proof)
+        bad["endorsements"][0]["root_sig"] = b"\x00" * 64
+        with self.assertRaises(ValueError):
+            secure.verify_proof(bad, self.static, self.now)
+
+    def test_static_binding_mismatch_rejected(self):
+        # the proof binds `self.static`; verifying against a different static fails
+        with self.assertRaises(ValueError):
+            secure.verify_proof(self.proof, os.urandom(32), self.now)
+
+    def test_expired_endorsement_rejected(self):
+        root, working = RootKey.generate(), WorkingKey.generate()
+        endo = root.endorse(working.public(), 0, 100)
+        local = LocalIdentity(root, working, [endo])
+        proof = cbor.decode(secure.make_proof(local, self.static))
+        with self.assertRaises(ValueError):
+            secure.verify_proof(proof, self.static, 200)  # now past not_after
 
 
 if __name__ == "__main__":
