@@ -74,6 +74,14 @@ unexpired, unrevoked working key → signature valid over the canonical bytes.
 `working_pub` (bytes), `not_before` (uint), `not_after` (uint), `root_sig` (bytes).
 Signed view (domain `thicket-endorsement-v1`): `{working_pub, not_before, not_after}`.
 
+### Revocation
+`working_pub` (bytes), `issued_at` (uint), `root_sig` (bytes). Signed view (domain
+`thicket-revocation-v1`): `{working_pub, issued_at}`. A root-signed statement that
+a working key is revoked. A resource verifies a Revocation (`verify_revocation`)
+before adding the key to its deny-list. **Grant verification rejects a grant if
+any key in the chain (issuer or audience) is in the resource's deny-list** — so a
+resource can kill its own issuing key or a delegated sub-grant.
+
 ### RecordPayload
 `schema` (text), `id` (bytes), `root_public_key` (bytes), `keys` (array of
 KeyEndorsement), `kind` (text), `locators` (array of `{protocol, endpoint}`),
@@ -120,7 +128,14 @@ Request|Response|Event|Error|StreamChunk|Cancel), `capability?` (text),
   `{target, issuer_pub, audience_pub, caveats, prev}` where `prev` is the
   previous link's `sig` (empty bytes for the head).
 - **Grant**: `target` (Id bytes), `links` (array of GrantLink). Attenuation only
-  narrows (subset of capabilities, `not_after ≤` parent, constraints preserved).
+  narrows (subset of capabilities, `not_after ≤` parent, constraints preserved or
+  added — never dropped).
+- **Constraint satisfaction** (resource-side): the grant's *effective* constraints
+  are the **last** link's `constraints` (the tightest, since narrowing only adds).
+  A request *satisfies* the grant iff every effective constraint `k=v` is matched
+  by an attribute the resource supplies, by **exact string equality** (a missing
+  attribute fails; a grant with no constraints is satisfied by anything). This
+  checks *scope*, not authenticity — it must be paired with grant verification.
 
 ---
 

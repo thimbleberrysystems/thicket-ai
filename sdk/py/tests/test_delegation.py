@@ -148,6 +148,48 @@ class Delegation(unittest.TestCase):
             proc.wait()
             proc.stdout.close()
 
+    def test_signed_revocation_kills_a_grant(self):
+        from thicket import crypto
+
+        proc, dir_id, host, port = self._directory()
+        try:
+
+            async def scenario():
+                owner = LocalIdentity.from_root(RootKey.generate())
+                agent = LocalIdentity.from_root(RootKey.generate())
+                far = unix_now() + 3600
+                g_agent = grant.issue(owner.id, owner.working, agent.working.public(),
+                                      grant.caveats(["fs.read"], far))
+
+                # owner publishes a SIGNED revocation of the agent's key; the
+                # resource verifies it and adds the key to its deny-list.
+                rev = owner.root.revoke(agent.working.public(), unix_now())
+                self.assertTrue(crypto.verify_revocation(owner.root_public_key, rev))
+                deny = {rev["working_pub"]}
+
+                # serve the fs tool with that deny-list
+                ready = asyncio.get_running_loop().create_future()
+                ftask = asyncio.create_task(
+                    fs_mod.run(owner, host, port, dir_id, revocations=deny, ready=ready)
+                )
+                await asyncio.wait_for(ready, 10)
+
+                async with Client(host, port, dir_id, local=agent) as ac:
+                    try:
+                        await ac.call("tool", "fs.read", {"path": "x"}, auth=g_agent)
+                        outcome = "ALLOWED"
+                    except ThicketError as e:
+                        outcome = e.code
+                await _stop(ftask)
+                return outcome
+
+            outcome = asyncio.run(asyncio.wait_for(scenario(), 30))
+            self.assertEqual(outcome, "Unauthorized")  # the revoked key's grant is dead
+        finally:
+            proc.kill()
+            proc.wait()
+            proc.stdout.close()
+
     def test_cannot_delegate_authority_you_lack(self):
         owner = LocalIdentity.from_root(RootKey.generate())
         agent = LocalIdentity.from_root(RootKey.generate())

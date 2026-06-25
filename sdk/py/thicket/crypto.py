@@ -34,6 +34,13 @@ def verify_sig(public_key: bytes, msg: bytes, sig: bytes) -> bool:
         return False
 
 
+def verify_revocation(root_pub: bytes, revocation: dict) -> bool:
+    """Verify a root-signed revocation (so a resource can trust a revocation
+    published by an identity's root before adding the key to its deny-list)."""
+    view = {"working_pub": revocation["working_pub"], "issued_at": revocation["issued_at"]}
+    return verify_sig(root_pub, signing_input("thicket-revocation-v1", view), revocation["root_sig"])
+
+
 class WorkingKey:
     """A short-lived signing key (32-byte Ed25519)."""
 
@@ -92,3 +99,10 @@ class RootKey:
             "not_after": not_after,
             "root_sig": sig,
         }
+
+    def revoke(self, working_pub: bytes, issued_at: int) -> dict:
+        """Produce a root-signed Revocation of a working key (field order +
+        domain match the Rust core, so the bytes are cross-language identical)."""
+        view = {"working_pub": working_pub, "issued_at": issued_at}
+        sig = self.sign(signing_input("thicket-revocation-v1", view))
+        return {"working_pub": working_pub, "issued_at": issued_at, "root_sig": sig}

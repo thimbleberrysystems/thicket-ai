@@ -74,6 +74,20 @@ fn grant() -> Grant {
     .unwrap()
 }
 
+fn grant_constrained() -> Grant {
+    let (root, working) = ident(1);
+    let (_, audience) = ident(4);
+    let mut cav = Caveats::new(["read"], 2_000_000);
+    cav.constraints.insert("region".into(), "eu".into());
+    Grant::issue(root.id(), &working, &audience.public(), cav).unwrap()
+}
+
+fn revocation() -> thicket_core::Revocation {
+    let (root, _) = ident(1);
+    let (_, revoked) = ident(5);
+    root.revoke(&revoked.public(), 1_500_000).unwrap()
+}
+
 /// The full named vector set as raw bytes.
 fn build_vectors() -> Vec<(&'static str, Vec<u8>)> {
     let (rec, _) = record();
@@ -86,6 +100,8 @@ fn build_vectors() -> Vec<(&'static str, Vec<u8>)> {
         ("envelope.cbor", to_cbor(&env)),
         ("envelope.signin", env.payload.signing_input().unwrap()),
         ("grant.cbor", to_cbor(&grant)),
+        ("grant_constrained.cbor", to_cbor(&grant_constrained())),
+        ("revocation.cbor", to_cbor(&revocation())),
     ]
 }
 

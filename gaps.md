@@ -45,6 +45,19 @@ Review found and fixed real security gaps (all tested):
   enforces path scoping; a path-constrained delegation test proves it.
 - **Stronger test** — reads back to prove a denied write left state untouched.
 
+A second re-audit found (and closed) the remaining cross-language asymmetries:
+- **Signed revocation primitive in Python** — added `RootKey.revoke` +
+  `verify_revocation` (matching the Rust `thicket-revocation-v1` view), a
+  `revocation.cbor` conformance vector (Python reproduces byte-exact + verifies),
+  and an end-to-end test: a root-signed revocation → deny-list → the grant dies.
+- **Constraint satisfaction conformance** — added Rust `Grant::satisfies` (parity
+  with Python), a `grant_constrained.cbor` vector both languages run `satisfies`
+  on, and spec'd the exact-match semantics.
+- **`ctx.grant` is now verified-only** — set only after the grant passes
+  verification, so `satisfies` can't be fooled by a forged grant (closing the
+  require_grant-pairing footgun).
+- spec/thicket-wire.md documents the Revocation object + constraint semantics.
+
 *Remaining (later, logged below): richer constraint matching (prefix/glob), and
 the spawn-an-ephemeral-sub-agent-fiber flow (model b). Pairs with gap 2
 (LangGraph adapter).*

@@ -69,6 +69,22 @@ fn grant_rejects_revoked_chain_key() {
 }
 
 #[test]
+fn grant_satisfies_constraints() {
+    use std::collections::BTreeMap;
+    let target = identity();
+    let alice = identity();
+    let mut cav = Caveats::new(["read"], NOW + 1000);
+    cav.constraints.insert("region".into(), "eu".into());
+    let g = Grant::issue(target.id.clone(), &target.working, &alice.working.public(), cav).unwrap();
+
+    let eu: BTreeMap<String, String> = [("region".to_string(), "eu".to_string())].into();
+    let us: BTreeMap<String, String> = [("region".to_string(), "us".to_string())].into();
+    assert!(g.satisfies(&eu), "matching constraint is satisfied");
+    assert!(!g.satisfies(&us), "wrong value is not satisfied");
+    assert!(!g.satisfies(&BTreeMap::new()), "missing attribute is not satisfied");
+}
+
+#[test]
 fn grant_authorizes_only_listed_capabilities() {
     let target = identity();
     let alice = identity();

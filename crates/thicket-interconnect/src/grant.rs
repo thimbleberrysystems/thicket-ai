@@ -241,4 +241,20 @@ impl Grant {
         }
         Ok(())
     }
+
+    /// Resource-side constraint check (parity with the Python SDK's
+    /// `grant.satisfies`): every constraint in the grant's effective (last-link,
+    /// tightest) caveats must be matched exactly by `attributes`. A grant with no
+    /// constraints is satisfied by anything. Pair with `verify` — this checks
+    /// scope, not authenticity.
+    pub fn satisfies(&self, attributes: &BTreeMap<String, String>) -> bool {
+        match self.links.last() {
+            None => true,
+            Some(link) => link
+                .caveats
+                .constraints
+                .iter()
+                .all(|(k, v)| attributes.get(k) == Some(v)),
+        }
+    }
 }

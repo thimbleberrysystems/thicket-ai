@@ -118,6 +118,21 @@ class GrantConformance(unittest.TestCase):
         self.assertFalse(grant.verify(g, root.public(), [endo], crypto.WorkingKey.generate().public(), "generate", now))
         self.assertFalse(grant.verify(g, root.public(), [endo], audience.public(), "generate", 2_000_001))
 
+    def test_constraint_satisfaction_matches_vector(self):
+        # The constrained-grant vector: Python reproduces it byte-for-byte and its
+        # satisfies() agrees with Rust's on the same grant bytes.
+        root = crypto.RootKey.from_seed(bytes([1]) * 32)
+        working = crypto.WorkingKey.from_seed(bytes([101]) * 32)
+        audience = crypto.WorkingKey.from_seed(bytes([104]) * 32)
+        cav = grant.caveats(["read"], 2_000_000, {"region": "eu"})
+        g = grant.issue(root.id(), working, audience.public(), cav)
+        self.assertEqual(cbor.encode(g), _read("grant_constrained.cbor"))
+
+        loaded = cbor.decode(_read("grant_constrained.cbor"))
+        self.assertTrue(grant.satisfies(loaded, {"region": "eu"}))
+        self.assertFalse(grant.satisfies(loaded, {"region": "us"}))
+        self.assertFalse(grant.satisfies(loaded, {}))
+
     def test_attenuation_narrows(self):
         g = _vector_grant()
         holder = crypto.WorkingKey.from_seed(bytes([104]) * 32)
@@ -126,6 +141,19 @@ class GrantConformance(unittest.TestCase):
         self.assertEqual(len(sub["links"]), 2)
         with self.assertRaises(ValueError):
             grant.attenuate(g, holder, delegate.public(), grant.caveats(["delete"], 2_000_000))
+
+
+class RevocationConformance(unittest.TestCase):
+    def test_reproduces_and_verifies_revocation_vector(self):
+        root = crypto.RootKey.from_seed(bytes([1]) * 32)
+        revoked = crypto.WorkingKey.from_seed(bytes([105]) * 32)
+        rev = root.revoke(revoked.public(), 1_500_000)
+        # byte-exact with the Rust-minted vector
+        self.assertEqual(cbor.encode(rev), _read("revocation.cbor"))
+        # Python verifies the Rust-minted revocation's signature
+        loaded = cbor.decode(_read("revocation.cbor"))
+        self.assertTrue(crypto.verify_revocation(root.public(), loaded))
+        self.assertFalse(crypto.verify_revocation(crypto.RootKey.generate().public(), loaded))
 
 
 if __name__ == "__main__":

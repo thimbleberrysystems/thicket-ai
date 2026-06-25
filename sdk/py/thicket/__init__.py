@@ -9,7 +9,7 @@ from .app import Client, Context, Fiber, ThicketError
 from .conn import Conn
 from .directory import DirectoryClient
 from .federation import FederatedDirectory
-from .crypto import RootKey, WorkingKey, sha256, signing_input, verify_sig
+from .crypto import RootKey, WorkingKey, sha256, signing_input, verify_revocation, verify_sig
 from .identity import LocalIdentity, unix_now
 from .server import serve
 from .record import (
@@ -48,6 +48,7 @@ __all__ = [
     "sha256",
     "signing_input",
     "verify_sig",
+    "verify_revocation",
     "build_record_payload",
     "capability",
     "lease",

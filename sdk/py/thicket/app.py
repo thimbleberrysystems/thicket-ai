@@ -183,7 +183,9 @@ class Context:
         # NB: `config or {}` would replace a shared (but empty) dict with a fresh
         # one each call, breaking stateful fibers — identity-check None instead.
         self.config = {} if config is None else config
-        self.grant = grant  # the grant the caller presented (for constraint checks)
+        # The *verified* grant the caller presented (None unless the capability is
+        # grant-gated) — safe for constraint checks because it's been verified.
+        self.grant = grant
         self.trace_id = self_ctx.get("trace_id")
         self.deadline = self_ctx.get("deadline")
         self.budget = self_ctx.get("budget")
@@ -295,6 +297,7 @@ class Fiber:
             if tracing.budget_exhausted(env):
                 await conn.respond_error(payload, "BudgetExhausted", "no budget remaining")
                 return
+            verified_grant = None
             if entry.require_grant or require_grant:
                 auth = payload.get("auth")
                 ok = auth is not None and grant.verify(
@@ -304,13 +307,14 @@ class Fiber:
                 if not ok:
                     await conn.respond_error(payload, "Unauthorized", "valid grant required")
                     return
+                verified_grant = auth  # ctx.grant is only ever a *verified* grant
             # This fiber's own span IS the one the caller allocated for it (the
             # context's span_id) — don't mint a new one, or sub-spans orphan. A
             # configured sink overrides where this subtree reports.
             self_ctx = dict(env)
             if sink is not None:
                 self_ctx["sink"] = sink
-            ctx = Context(local, directory, self_ctx, tool_grant=tool_grant, grant=payload.get("auth"), config=config)
+            ctx = Context(local, directory, self_ctx, tool_grant=tool_grant, grant=verified_grant, config=config)
             call_args = (_decode(payload.get("body")), ctx) if entry.takes_ctx else (_decode(payload.get("body")),)
             span = emitter.span(self_ctx, name=f"{self.kind}:{cap}", kind=self.kind) if emitter else contextlib.nullcontext()
             try:
