@@ -29,6 +29,7 @@ connect, propagate context, attenuate grants, and decode for you:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import inspect
 
@@ -36,7 +37,7 @@ from . import cbor, grant, record, tracing
 from .conn import Conn
 from .directory import DirectoryClient
 from .fiber import run_fiber, run_main
-from .identity import unix_now
+from .identity import LocalIdentity, unix_now
 
 
 def _encode(value) -> bytes:
@@ -56,9 +57,11 @@ def _decode(body):
         return body
 
 
-class ThicketError(Exception):
-    """Raise from a handler (or it surfaces from ``ctx.call``) to return a coded
-    error envelope to the caller instead of a generic failure."""
+class ThicketError(RuntimeError):
+    """Raise from a handler (or it surfaces from ``ctx.call`` / ``Client.call``) to
+    return a coded error envelope. Subclasses ``RuntimeError`` so a broad
+    ``except RuntimeError`` still catches it, while ``except ThicketError`` and the
+    ``.code`` / ``.message`` fields give callers the detail."""
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(f"{code}: {message}")
@@ -66,13 +69,115 @@ class ThicketError(Exception):
         self.message = message
 
 
+class Client:
+    """Consumer-side handle: discover and invoke fibers in one line, from an app
+    or another fiber. Reuses one directory connection and one Noise channel per
+    fiber (and caches discovery), so repeated calls don't re-handshake. ``close()``
+    when done, or use ``async with Client(...) as c:``.
+
+        async with Client(host, port, dir_id) as c:
+            out = await c.call("tool", "calc.add", {"a": 2, "b": 3})
+    """
+
+    def __init__(self, dir_host, dir_port, dir_id, *, local=None):
+        self._local = local or LocalIdentity.generate()
+        self._dir_cfg = (dir_host, dir_port, dir_id)
+        self._dc = None  # cached DirectoryClient
+        self._conns: dict[bytes, Conn] = {}  # fiber id -> reused channel
+        self._disc: dict[tuple, tuple] = {}  # (kind, capability) -> (id, host, port)
+
+    async def _directory(self):
+        if self._dc is None:
+            self._dc = await DirectoryClient.connect(self._dir_cfg[0], self._dir_cfg[1], self._local, self._dir_cfg[2])
+        return self._dc
+
+    async def search(self, kind, intent, *, top_k=10) -> list:
+        """Discover fibers by kind + semantic intent — the raw signed records."""
+        return await (await self._directory()).search(intent, kind=kind, top_k=top_k)
+
+    async def _discover(self, kind, capability):
+        key = (kind, capability)
+        if key not in self._disc:
+            hits = await self.search(kind, capability, top_k=5)
+            if not hits:
+                raise ThicketError("Unavailable", f"no {kind!r} fiber serves {capability!r}")
+            rec = hits[0]["payload"]
+            host, port = rec["locators"][0]["endpoint"].split(":")
+            self._disc[key] = (rec["id"], host, int(port))
+        return self._disc[key]
+
+    async def _channel(self, fiber_id, host, port):
+        conn = self._conns.get(fiber_id)
+        if conn is None:
+            conn = await Conn.connect(host, port, self._local, expected_id=fiber_id)
+            self._conns[fiber_id] = conn
+        return conn
+
+    def _evict(self, kind, capability, fiber_id):
+        self._disc.pop((kind, capability), None)
+        self._conns.pop(fiber_id, None)
+
+    async def call(self, kind, capability, args=None, *, context=None, auth=None, timeout=10.0):
+        """Discover a ``kind`` fiber serving ``capability``, invoke it, return the
+        decoded result. Raises ``ThicketError`` on a remote error."""
+        fiber_id, host, port = await self._discover(kind, capability)
+        try:
+            conn = await self._channel(fiber_id, host, port)
+            resp = await conn.call(capability, _encode(args), auth=auth, context=context, timeout=timeout)
+        except (ConnectionError, OSError):
+            self._evict(kind, capability, fiber_id)  # stale channel — next call reconnects
+            raise
+        p = resp["payload"]
+        if p.get("typ") == "Error":
+            err = p.get("error") or {}
+            raise ThicketError(err.get("code", "Error"), err.get("message", "remote error"))
+        return _decode(p.get("body"))
+
+    async def gather(self, kind, capability, args=None, *, context=None, auth=None, timeout=30.0):
+        """Like ``call`` but for a streamed capability — collects the chunks,
+        joining text into one string."""
+        fiber_id, host, port = await self._discover(kind, capability)
+        conn = await self._channel(fiber_id, host, port)
+        chunks = []
+        try:
+            async for c in conn.call_stream(capability, _encode(args), auth=auth, context=context, timeout=timeout):
+                body = c.get("body", b"")
+                if body:
+                    chunks.append(_decode(body))
+        except (ConnectionError, OSError):
+            self._evict(kind, capability, fiber_id)
+            raise
+        if chunks and all(isinstance(c, str) for c in chunks):
+            return "".join(chunks)
+        return chunks
+
+    async def close(self):
+        for conn in self._conns.values():
+            with contextlib.suppress(Exception):
+                await conn.close()
+        self._conns.clear()
+        self._disc.clear()
+        if self._dc is not None:
+            with contextlib.suppress(Exception):
+                await self._dc.close()
+            self._dc = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        await self.close()
+
+
 class Context:
     """A handler's optional second argument: the live trace/deadline/budget, the
-    per-call ``config`` passed to ``run``, and one-line access to other fibers."""
+    per-call ``config`` passed to ``run``, and one-line access to other fibers
+    (``call`` / ``gather`` / ``search``) with the trace context propagated and any
+    held grant attenuated automatically."""
 
     def __init__(self, local, directory, self_ctx, *, tool_grant=None, config=None):
         self._local = local
-        self._dir = directory  # (host, port, id)
+        self._client = Client(directory[0], directory[1], directory[2], local=local)
         self._ctx = self_ctx  # this fiber's span context — the parent of sub-calls
         self._tool_grant = tool_grant
         # NB: `config or {}` would replace a shared (but empty) dict with a fresh
@@ -83,21 +188,7 @@ class Context:
         self.budget = self_ctx.get("budget")
 
     async def search(self, kind, intent, *, top_k=10) -> list:
-        """Discover fibers by kind + semantic intent — the raw signed records
-        (for meta-fibers like a router that rank by what they advertise)."""
-        dc = await DirectoryClient.connect(self._dir[0], self._dir[1], self._local, self._dir[2])
-        try:
-            return await dc.search(intent, kind=kind, top_k=top_k)
-        finally:
-            await dc.close()
-
-    async def _discover(self, kind, capability):
-        hits = await self.search(kind, capability, top_k=5)
-        if not hits:
-            raise ThicketError("Unavailable", f"no {kind!r} fiber serves {capability!r}")
-        rec = hits[0]["payload"]
-        host, port = rec["locators"][0]["endpoint"].split(":")
-        return rec["id"], host, int(port)
+        return await self._client.search(kind, intent, top_k=top_k)
 
     def _auth_for(self, capability):
         if self._tool_grant is None:
@@ -112,38 +203,22 @@ class Context:
         )
 
     async def call(self, kind, capability, args=None, *, spent=1):
-        """Discover a ``kind`` fiber serving ``capability``, invoke it, and return
-        the decoded result. Raises ``ThicketError`` on a remote error/failure."""
-        child = tracing.child_context(self._ctx, spent=spent)
-        fiber_id, host, port = await self._discover(kind, capability)
-        conn = await Conn.connect(host, port, self._local, expected_id=fiber_id)
-        try:
-            resp = await conn.call(capability, _encode(args), auth=self._auth_for(capability), context=child)
-            p = resp["payload"]
-            if p.get("typ") == "Error":
-                err = p.get("error") or {}
-                raise ThicketError(err.get("code", "Error"), err.get("message", "remote error"))
-            return _decode(p.get("body"))
-        finally:
-            await conn.close()
+        """Discover and invoke a ``kind`` fiber, with this call parented to the
+        fiber's span and any held grant attenuated to ``capability``."""
+        return await self._client.call(
+            kind, capability, args,
+            context=tracing.child_context(self._ctx, spent=spent), auth=self._auth_for(capability),
+        )
 
     async def gather(self, kind, capability, args=None, *, spent=1):
-        """Like ``call`` but for a streamed capability — collects the chunks,
-        joining text into one string."""
-        child = tracing.child_context(self._ctx, spent=spent)
-        fiber_id, host, port = await self._discover(kind, capability)
-        conn = await Conn.connect(host, port, self._local, expected_id=fiber_id)
-        chunks = []
-        try:
-            async for c in conn.call_stream(capability, _encode(args), auth=self._auth_for(capability), context=child):
-                body = c.get("body", b"")
-                if body:
-                    chunks.append(_decode(body))
-        finally:
-            await conn.close()
-        if chunks and all(isinstance(c, str) for c in chunks):
-            return "".join(chunks)
-        return chunks
+        """Streamed counterpart of ``call`` — collects the chunks."""
+        return await self._client.gather(
+            kind, capability, args,
+            context=tracing.child_context(self._ctx, spent=spent), auth=self._auth_for(capability),
+        )
+
+    async def aclose(self):
+        await self._client.close()
 
 
 class _Cap:
@@ -221,6 +296,8 @@ class Fiber:
                 await conn.respond_error(payload, e.code, e.message)
             except Exception as e:  # never crash the connection — return a clean error
                 await conn.respond_error(payload, "Error", str(e))
+            finally:
+                await ctx.aclose()  # release any channels the handler opened downstream
 
         return handler
 

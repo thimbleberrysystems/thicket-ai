@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(REPO, "sdk", "py"))
 for _p in ("fibers/py/llm", "fibers/py/tool_calc", "weaves/py/sum_describer"):
     sys.path.insert(0, os.path.join(REPO, *_p.split("/")))
 
-from thicket import Conn, DirectoryClient, LocalIdentity, RootKey, cbor  # noqa: E402
+from thicket import Client, LocalIdentity, RootKey  # noqa: E402
 
 import calc  # noqa: E402
 import llm  # noqa: E402
@@ -55,16 +55,8 @@ async def demo(a: int = 2, b: int = 3) -> dict:
         for coro in (calc.run, llm.run, weave_mod.run):
             tasks.append(await _serve(coro, dir_id, host, port))
 
-        consumer = LocalIdentity.from_root(RootKey.generate())
-        dc = await DirectoryClient.connect(host, port, consumer, dir_id)
-        hit = (await dc.search("describe the sum of two numbers", kind="weave"))[0]["payload"]
-        await dc.close()
-
-        wh, wp = hit["locators"][0]["endpoint"].split(":")
-        conn = await Conn.connect(wh, int(wp), consumer, expected_id=hit["id"])
-        resp = await conn.call("describe_sum", cbor.encode({"a": a, "b": b}), timeout=20)
-        await conn.close()
-        return cbor.decode(resp["payload"]["body"])
+        async with Client(host, port, dir_id) as c:
+            return await c.call("weave", "describe_sum", {"a": a, "b": b}, timeout=20)
     finally:
         for t in tasks:
             t.cancel()

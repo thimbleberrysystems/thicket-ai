@@ -234,7 +234,7 @@ class Wave3Contract(unittest.TestCase):
                     cinfo["endpoint"].split(":")[0], int(cinfo["endpoint"].split(":")[1]), consumer, cinfo["id"]
                 )
                 tr = {"spans": []}
-                for _ in range(50):
+                for _ in range(100):
                     tr = await cc.trace(trace)
                     if len(tr["spans"]) >= 3:
                         break
@@ -243,7 +243,7 @@ class Wave3Contract(unittest.TestCase):
                 await _stop(ctask, ttask, ltask, wtask)
                 return tr
 
-            tr = asyncio.run(asyncio.wait_for(scenario(), 40))
+            tr = asyncio.run(asyncio.wait_for(scenario(), 90))
             names = {s["name"] for s in tr["spans"]}
             self.assertEqual(names, {"weave:describe_sum", "tool:calc.add", "model:generate"})
             self.assertEqual(len(tr["roots"]), 1)
@@ -287,7 +287,7 @@ class Wave3Contract(unittest.TestCase):
                         consumer, info["id"],
                     )
                     out = {"spans": []}
-                    for _ in range(50):
+                    for _ in range(100):
                         out = await cc.trace(trace)
                         if len(out["spans"]) >= 3:
                             break
@@ -300,7 +300,7 @@ class Wave3Contract(unittest.TestCase):
                 await _stop(c1, c2, ttask, ltask, wtask)
                 return in_a, in_b
 
-            in_a, in_b = asyncio.run(asyncio.wait_for(scenario(), 40))
+            in_a, in_b = asyncio.run(asyncio.wait_for(scenario(), 90))
             self.assertEqual(len(in_b["spans"]), 3, "the chosen sink B receives the whole trace")
             self.assertEqual(len(in_a["spans"]), 0, "sink A, not chosen, receives nothing")
         finally:

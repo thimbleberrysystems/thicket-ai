@@ -106,6 +106,16 @@ async def plan(req, ctx):
     return {"weather": w, "advice": tip}
 ```
 
+Calling any of it from an app is one line too — `Client` discovers, connects
+(reusing channels), encodes, and decodes for you:
+
+```python
+from thicket import Client
+
+async with Client(dir_host, dir_port, dir_id) as c:
+    print(await c.call("weave", "plan", {"city": "Lisbon"}))
+```
+
 No framework to adopt. No base class to inherit. No boilerplate. Just the logic —
 which is the whole point: **a protocol people will actually use.**
 
