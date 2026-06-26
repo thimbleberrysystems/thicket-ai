@@ -6,12 +6,14 @@
 //! canonical signing rule so any language can interoperate.
 
 pub mod capability;
+pub mod checkpoint;
 pub mod crypto;
 pub mod error;
 pub mod identity;
 pub mod record;
 
 pub use capability::{Capability, Io, Lease, Locator, Visibility};
+pub use checkpoint::{Checkpoint, Step};
 pub use crypto::{sha256, signing_bytes, verify_signature};
 pub use error::{Error, Result};
 pub use identity::{

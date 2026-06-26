@@ -137,6 +137,18 @@ Request|Response|Event|Error|StreamChunk|Cancel), `capability?` (text),
   attribute fails; a grant with no constraints is satisfied by anything). This
   checks *scope*, not authenticity — it must be paired with grant verification.
 
+### Step / Checkpoint
+- **Step**: `key` (text), `value` (bytes — opaque, domain-specific; never
+  interpreted by the core).
+- **Checkpoint**: `run_id` (bytes), `steps` (array of Step, in execution order). A
+  run's recorded steps, so durable execution resumes without re-running completed
+  work. A **stateless data primitive** — the core defines the shape and canonical
+  encoding only; *where* a checkpoint is stored (file, state fiber, memory) is the
+  consumer's choice, and the core never stores one. **Step keying convention**:
+  positional `#0`, `#1`, … for a deterministic run; `record` is idempotent on the
+  key (first write wins) so a replay never overwrites. The SDK convention is to
+  CBOR-encode a step's result into `value`.
+
 ---
 
 ## 4. Framing

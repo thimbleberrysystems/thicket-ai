@@ -88,6 +88,13 @@ fn revocation() -> thicket_core::Revocation {
     root.revoke(&revoked.public(), 1_500_000).unwrap()
 }
 
+fn checkpoint() -> thicket_core::Checkpoint {
+    let mut cp = thicket_core::Checkpoint::new(b"run-7".to_vec());
+    cp.record("#0", b"first".to_vec());
+    cp.record("#1", b"second".to_vec());
+    cp
+}
+
 /// The full named vector set as raw bytes.
 fn build_vectors() -> Vec<(&'static str, Vec<u8>)> {
     let (rec, _) = record();
@@ -102,6 +109,7 @@ fn build_vectors() -> Vec<(&'static str, Vec<u8>)> {
         ("grant.cbor", to_cbor(&grant)),
         ("grant_constrained.cbor", to_cbor(&grant_constrained())),
         ("revocation.cbor", to_cbor(&revocation())),
+        ("checkpoint.cbor", checkpoint().to_cbor().unwrap()),
     ]
 }
 

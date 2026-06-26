@@ -106,11 +106,17 @@ one line, instantly composable + securely reachable. Rides their adoption.
 ---
 
 ## 3. Durable execution (checkpointing)
-**Status:** ✅ Done (atom + ctx + durable weaves). Built from the smallest element
-up:
+**Status:** ✅ Done (core primitive + atom + ctx + durable weaves). Built from the
+smallest element up, and the checkpoint itself is now a **core primitive** —
+defined in `thicket-core` (`Checkpoint`/`Step`), spec'd in `thicket-wire.md`, with
+a byte-exact conformance vector (`checkpoint.cbor`) the Python SDK reproduces — so
+a run checkpointed by one implementation is resumable by another. Crucially the
+core **stores nothing**: it owns the *contract* (shape + canonical encoding +
+keying), not the data; it's stateless and fiber-independent. *Where* a checkpoint
+lives (file, state fiber, memory) is the consumer's choice.
 - **Atom** — `thicket.checkpoint.Checkpoint.step(fn)`: an async step that runs at
   most once per run; on resume (same `run_id`) it replays the recorded result.
-  Store-agnostic (async `load`/`save`).
+  Store-agnostic (async `load`/`save`); step values are canonical bytes.
 - **Stores** — `DictStore` (in-process), `FileCheckpointStore` (CBOR file, survives
   a process restart). Both tested (memoize-across-crash; durable-across-restart).
 - **Above just reuses it** — `ctx.call` / `ctx.gather` / `ctx.step` are steps;

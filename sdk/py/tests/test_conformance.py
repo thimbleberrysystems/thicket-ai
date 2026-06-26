@@ -143,6 +143,19 @@ class GrantConformance(unittest.TestCase):
             grant.attenuate(g, holder, delegate.public(), grant.caveats(["delete"], 2_000_000))
 
 
+class CheckpointConformance(unittest.TestCase):
+    def test_reproduces_checkpoint_vector(self):
+        # The checkpoint is a core primitive: Python's canonical encoding must be
+        # byte-identical to the Rust core's, so a run is resumable cross-language.
+        from thicket import checkpoint as cp
+
+        steps = {"#0": b"first", "#1": b"second"}
+        self.assertEqual(cp.encode_checkpoint(b"run-7", steps), _read("checkpoint.cbor"))
+        run_id, decoded = cp.decode_checkpoint(_read("checkpoint.cbor"))
+        self.assertEqual(run_id, b"run-7")
+        self.assertEqual(decoded, steps)
+
+
 class RevocationConformance(unittest.TestCase):
     def test_reproduces_and_verifies_revocation_vector(self):
         root = crypto.RootKey.from_seed(bytes([1]) * 32)
