@@ -105,23 +105,24 @@ one line, instantly composable + securely reachable. Rides their adoption.
 
 ---
 
-## 3. Durable execution (network-native checkpointing)
-**Status:** Not started
+## 3. Durable execution (checkpointing)
+**Status:** ✅ Done (atom + ctx + durable weaves). Built from the smallest element
+up:
+- **Atom** — `thicket.checkpoint.Checkpoint.step(fn)`: an async step that runs at
+  most once per run; on resume (same `run_id`) it replays the recorded result.
+  Store-agnostic (async `load`/`save`).
+- **Stores** — `DictStore` (in-process), `FileCheckpointStore` (CBOR file, survives
+  a process restart). Both tested (memoize-across-crash; durable-across-restart).
+- **Above just reuses it** — `ctx.call` / `ctx.gather` / `ctx.step` are steps;
+  `@handles(..., durable=True)` + `run(checkpoints=<store>)` makes a weave
+  resumable, keyed by the caller's trace (run) id. A sub-weave call is one step at
+  the level above, so durability **composes**. Tested end to end: a durable weave
+  re-invoked with the same trace replays without re-running its sub-call.
 
-**Impact (high).** LangGraph's headline feature is durable, resumable agents.
-Matching it removes the #1 reason to stay. The network-native version is a
-*differentiator*: state lives on a state fiber, not in one process — so agents
-are resumable *and* portable across machines, with no database the developer runs.
-
-**State today.** The `memory` fiber exists; weaves are stateless per call; no
-checkpoint/resume pattern.
-
-**What's needed.**
-- A checkpoint helper: a weave persists per-step state to a state/memory fiber
-  after each step; resume by replaying from the last checkpoint.
-- Possibly a `@durable` decorator that makes a weave automatically checkpointed.
-
-**Depends on:** memory fiber (done); benefits from #6 (loops).
+**Remaining (follow-on backend, not a redesign):** a `FiberCheckpointStore` backed
+by a state fiber, for the *network-native* pitch — state on a fiber, portable
+across machines. It's just another store implementing the same async `load`/`save`
+the atom already consumes. (Also benefits from #6 loops for agent-style runs.)
 
 ---
 

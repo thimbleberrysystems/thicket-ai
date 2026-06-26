@@ -34,6 +34,7 @@ import contextlib
 import inspect
 
 from . import cbor, grant, record, tracing
+from .checkpoint import Checkpoint
 from .conn import Conn
 from .directory import DirectoryClient
 from .fiber import run_fiber, run_main
@@ -196,11 +197,12 @@ class Context:
     (``call`` / ``gather`` / ``search``) with the trace context propagated and any
     held grant attenuated automatically."""
 
-    def __init__(self, local, directory, self_ctx, *, tool_grant=None, grant=None, config=None):
+    def __init__(self, local, directory, self_ctx, *, tool_grant=None, grant=None, checkpoint=None, config=None):
         self._local = local
         self._client = Client(directory[0], directory[1], directory[2], local=local)
         self._ctx = self_ctx  # this fiber's span context — the parent of sub-calls
         self._tool_grant = tool_grant
+        self._checkpoint = checkpoint  # set for durable handlers; None otherwise
         # NB: `config or {}` would replace a shared (but empty) dict with a fresh
         # one each call, breaking stateful fibers — identity-check None instead.
         self.config = {} if config is None else config
@@ -254,18 +256,34 @@ class Context:
 
     async def call(self, kind, capability, args=None, *, spent=1):
         """Discover and invoke a ``kind`` fiber, with this call parented to the
-        fiber's span and any held grant attenuated to ``capability``."""
-        return await self._client.call(
-            kind, capability, args,
-            context=tracing.child_context(self._ctx, spent=spent), auth=self._auth_for(capability),
-        )
+        fiber's span and any held grant attenuated to ``capability``. In a durable
+        handler the result is checkpointed (a step), so a resumed run replays it."""
+        async def do():
+            return await self._client.call(
+                kind, capability, args,
+                context=tracing.child_context(self._ctx, spent=spent), auth=self._auth_for(capability),
+            )
+
+        return await self.step(do)
 
     async def gather(self, kind, capability, args=None, *, spent=1):
-        """Streamed counterpart of ``call`` — collects the chunks."""
-        return await self._client.gather(
-            kind, capability, args,
-            context=tracing.child_context(self._ctx, spent=spent), auth=self._auth_for(capability),
-        )
+        """Streamed counterpart of ``call`` — collects the chunks (checkpointed in
+        a durable handler)."""
+        async def do():
+            return await self._client.gather(
+                kind, capability, args,
+                context=tracing.child_context(self._ctx, spent=spent), auth=self._auth_for(capability),
+            )
+
+        return await self.step(do)
+
+    async def step(self, fn, *, key=None):
+        """Durably memoize an arbitrary async step. Outside a durable handler this
+        just runs ``fn()``; inside one it records the result and replays it on
+        resume. This is the atom ``call`` / ``gather`` are built on."""
+        if self._checkpoint is None:
+            return await fn()
+        return await self._checkpoint.step(fn, key=key)
 
     async def gather_all(self, *calls):
         """Fan out several sub-calls **concurrently** (each parented to this
@@ -277,14 +295,15 @@ class Context:
 
 
 class _Cap:
-    __slots__ = ("fn", "description", "tags", "require_grant", "cost", "takes_ctx", "is_stream")
+    __slots__ = ("fn", "description", "tags", "require_grant", "cost", "durable", "takes_ctx", "is_stream")
 
-    def __init__(self, fn, description, tags, require_grant, cost):
+    def __init__(self, fn, description, tags, require_grant, cost, durable):
         self.fn = fn
         self.description = description
         self.tags = tags
         self.require_grant = require_grant
         self.cost = cost
+        self.durable = durable
         self.takes_ctx = len(inspect.signature(fn).parameters) >= 2
         self.is_stream = inspect.isasyncgenfunction(fn)
 
@@ -297,13 +316,15 @@ class Fiber:
         self.kind = kind
         self._caps: dict[str, _Cap] = {}
 
-    def handles(self, capability, description="", *, tags=None, require_grant=False, cost=0):
+    def handles(self, capability, description="", *, tags=None, require_grant=False, cost=0, durable=False):
         """Declare a capability. ``cost`` (metering/quota) is the minimum budget a
-        caller must carry in its context to invoke it — calls with less are
-        rejected with ``QuotaExceeded``."""
+        caller must carry to invoke it. ``durable=True`` makes the handler
+        resumable: its ``ctx.call`` / ``ctx.step`` results are checkpointed under
+        the caller's trace id, so a retry with the same trace resumes without
+        re-running completed steps (requires ``run(checkpoints=<store>)``)."""
 
         def deco(fn):
-            self._caps[capability] = _Cap(fn, description, list(tags or []), require_grant, cost)
+            self._caps[capability] = _Cap(fn, description, list(tags or []), require_grant, cost, durable)
             return fn
 
         return deco
@@ -314,7 +335,7 @@ class Fiber:
             for cap, c in self._caps.items()
         ]
 
-    def _handler(self, local, directory, emitter, *, sink, tool_grant, require_grant, revocations, config):
+    def _handler(self, local, directory, emitter, *, sink, tool_grant, require_grant, revocations, checkpoints, config):
         async def handler(conn, payload):
             cap = payload.get("capability")
             entry = self._caps.get(cap)
@@ -350,7 +371,12 @@ class Fiber:
             self_ctx = dict(env)
             if sink is not None:
                 self_ctx["sink"] = sink
-            ctx = Context(local, directory, self_ctx, tool_grant=tool_grant, grant=verified_grant, config=config)
+            # durable handler: open/resume a checkpoint keyed by the trace (run) id
+            checkpoint = None
+            if entry.durable and checkpoints is not None and env.get("trace_id"):
+                checkpoint = await Checkpoint.open(checkpoints, env["trace_id"])
+            ctx = Context(local, directory, self_ctx, tool_grant=tool_grant,
+                          grant=verified_grant, checkpoint=checkpoint, config=config)
             call_args = (_decode(payload.get("body")), ctx) if entry.takes_ctx else (_decode(payload.get("body")),)
             span = emitter.span(self_ctx, name=f"{self.kind}:{cap}", kind=self.kind) if emitter else contextlib.nullcontext()
             try:
@@ -394,11 +420,13 @@ class Fiber:
             await agen.aclose()
 
     async def run(self, local, dir_host, dir_port, dir_id, *, host="127.0.0.1",
-                  sink=None, tool_grant=None, require_grant=False, revocations=None, ready=None, **config):
+                  sink=None, tool_grant=None, require_grant=False, revocations=None,
+                  checkpoints=None, ready=None, **config):
         """Serve every declared capability, register with the directory, and run
         until cancelled. ``revocations`` is this resource's set of revoked working
-        keys (grants involving any of them are rejected). ``**config`` is passed
-        through to handlers as ``ctx.config`` (e.g. an LLM fiber's model backend)."""
+        keys. ``checkpoints`` is a checkpoint store (e.g. ``FileCheckpointStore``)
+        enabling durable execution for ``durable=True`` capabilities. ``**config``
+        is passed through to handlers as ``ctx.config``."""
         directory = (dir_host, dir_port, dir_id)
         emitter = tracing.SpanEmitter(local)
         try:
@@ -409,7 +437,7 @@ class Fiber:
                 handler=self._handler(
                     local, directory, emitter,
                     sink=sink, tool_grant=tool_grant, require_grant=require_grant,
-                    revocations=revocations, config=config,
+                    revocations=revocations, checkpoints=checkpoints, config=config,
                 ),
                 host=host, ready=ready,
             )
