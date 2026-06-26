@@ -6,7 +6,7 @@ Shares no code with the Rust core; conformance is proven against
 
 from . import cbor, checkpoint, crypto, directory, envelope, federation, grant, identity, record, secure, server, store, tracing
 from .app import Client, Context, Fiber, ThicketError
-from .checkpoint import Checkpoint, DictStore, FileCheckpointStore
+from .checkpoint import Checkpoint, DictStore, FiberCheckpointStore, FileCheckpointStore
 from .store import FileStore
 from .conn import Conn
 from .directory import DirectoryClient
@@ -48,6 +48,7 @@ __all__ = [
     "Checkpoint",
     "DictStore",
     "FileCheckpointStore",
+    "FiberCheckpointStore",
     "LocalIdentity",
     "serve",
     "unix_now",

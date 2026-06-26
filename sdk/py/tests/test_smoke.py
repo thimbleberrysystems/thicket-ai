@@ -18,10 +18,10 @@ REPO = os.path.join(HERE, "..", "..", "..")
 DIR_BIN = os.path.join(REPO, "target", "debug", "examples", "directory_server")
 for _p in ("apps/py/demo", "fibers/py/llm", "fibers/py/tool_calc", "fibers/py/memory",
            "fibers/py/collector", "fibers/py/trigger", "fibers/py/router",
-           "fibers/py/tool_fs", "weaves/py/sum_describer"):
+           "fibers/py/tool_fs", "fibers/py/state", "weaves/py/sum_describer"):
     sys.path.insert(0, os.path.join(REPO, *_p.split("/")))
 
-FIBER_MODULES = ["llm", "calc", "memory", "collector", "trigger", "router", "fs", "weave"]
+FIBER_MODULES = ["llm", "calc", "memory", "collector", "trigger", "router", "fs", "state", "weave"]
 
 
 class Launchable(unittest.TestCase):

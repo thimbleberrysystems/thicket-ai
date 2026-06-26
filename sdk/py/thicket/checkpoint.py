@@ -97,3 +97,23 @@ class FileCheckpointStore:
     async def save(self, run_id, blob):
         self._fs.data[run_id] = blob
         self._fs.save()
+
+
+class FiberCheckpointStore:
+    """**Network-native** checkpoint store: a thin client to a `state` fiber, so a
+    run's durable state lives *on a fiber* (portable across machines) rather than
+    in the weave's process. Same async ``load``/``save`` the atom consumes — the
+    core never changes. ``client`` is a ``thicket.Client``."""
+
+    def __init__(self, client, *, kind="state"):
+        self._client = client
+        self._kind = kind
+
+    async def load(self, run_id):
+        return (await self._client.call(self._kind, "state.get", {"key": run_id})).get("value")
+
+    async def save(self, run_id, blob):
+        await self._client.call(self._kind, "state.set", {"key": run_id, "value": blob})
+
+    async def close(self):
+        await self._client.close()
